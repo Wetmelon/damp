@@ -65,7 +65,7 @@ int main() {
     fmt::print("Scenario: step r=1 → load 0.45 N·m @ 1.2 s → J×3 @ 2.4 s → r=0 @ 3.6 s\n\n");
 
     Law<adrc_d, double>   adrc;
-    PIDController<double> pid{pid_d.discretize(Ts)};
+    PIDController<double> pid{pid_d.discretize(Ts, pid_limits)};
 
     Axis plant_adrc{};
     Axis plant_pid{};

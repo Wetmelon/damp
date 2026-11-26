@@ -84,10 +84,10 @@ namespace damp {
 namespace design {
 
 /**
- * @brief Smith predictor design result (discrete PID + FO model + delay samples)
+ * @brief Smith predictor design result (PID deployed at Ts + FO model + delay samples)
  *
  * Produced by @ref smith_predictor_from_fopdt / @ref smith_predictor_from_pid.
- * The packed @ref DiscretePIDGains is the convenience primary for the process
+ * The packed @ref PIDResult is the convenience primary for the process
  * path; construct @ref SmithPredictor from it (default PIController) or
  * build a custom SisoController and pass model coeffs separately.
  *
@@ -95,7 +95,7 @@ namespace design {
  */
 template<typename T = double>
 struct [[nodiscard]] SmithPredictorResult {
-    DiscretePIDGains<T> pid{}; ///< Convenience primary (delay-free design, discretized)
+    PIDResult<T> pid{}; ///< Convenience primary (delay-free design, at Ts)
 
     T            a{T{0}};                             ///< Discrete FO model pole a = e^{−T_s/τ}
     T            b{T{0}};                             ///< Discrete FO model gain b = K(1−a) (ZOH)
@@ -131,24 +131,12 @@ struct [[nodiscard]] SmithPredictorResult {
     }
 
     /**
-     * @brief Continuous primary C(s) recovered from the packed discrete PID
+     * @brief The continuous primary C(s): the packed PID's gains
      *
      * The delay is not in this rational map (Smith hides L from C). Failed
-     * designs return a zero PID.
+     * designs, and a result whose Ts is not finite and positive, return a zero PID.
      */
-    [[nodiscard]] constexpr PIDGains<T> primary_pid() const {
-        PIDGains<T> c{};
-        if (!success || !damp::finite_positive(Ts)) {
-            return c;
-        }
-        c.Kp = pid.Kp;
-        c.Ki = pid.Ki / Ts;
-        c.Kd = pid.Kd;
-        c.Tf = pid.Tf;
-        c.b = pid.b;
-        c.c = pid.c;
-        return c;
-    }
+    [[nodiscard]] constexpr PIDGains<T> primary_pid() const { return (success && damp::finite_positive(Ts)) ? pid.gains : PIDGains<T>{}; }
 
     /**
      * @brief Delay-free primary transfer function (SIMC / packed PID)
@@ -198,7 +186,7 @@ template<typename T>
  * Carries a failed @p pid's status, and refuses a model gain that is zero or not finite.
  */
 template<typename T>
-[[nodiscard]] constexpr SmithPredictorResult<T> smith_result(const DiscretePIDGains<T>& pid, T K, T tau, T L, T Ts) {
+[[nodiscard]] constexpr SmithPredictorResult<T> smith_result(const PIDResult<T>& pid, T K, T tau, T L, T Ts) {
     if (!pid.success) {
         return refused<SmithPredictorResult<T>>(pid.status);
     }
@@ -349,7 +337,7 @@ public:
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!damp::is_same_v<U, T>) && damp::constructible_from<Primary, const design::DiscretePIDGains<T>&>
+        requires(!damp::is_same_v<U, T>) && damp::constructible_from<Primary, const design::PIDResult<T>&>
     constexpr SmithPredictor(const design::SmithPredictorResult<U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : SmithPredictor(result.template as<T>()) {}
 
@@ -358,7 +346,7 @@ public:
      *
      * @param result Design from @ref design::smith_predictor_from_fopdt (or from_pid)
      *
-     * Requires @p Primary to be constructible from @ref design::DiscretePIDGains
+     * Requires @p Primary to be constructible from @ref design::PIDResult
      * (true for PIController / PIDController / @ref PController).
      *
      * If @p result.success is false or @p delay_samples exceeds @p MaxDelay, the design does not
@@ -366,7 +354,7 @@ public:
      * @ref step returns zero.
      */
     constexpr SmithPredictor(const design::SmithPredictorResult<T>& result) // NOLINT(google-explicit-constructor): assign-from-design
-        requires damp::constructible_from<Primary, const design::DiscretePIDGains<T>&>
+        requires damp::constructible_from<Primary, const design::PIDResult<T>&>
         : SmithPredictor(Primary(result.pid), result.a, result.b, result.delay_samples) {
         valid_ = valid_ && result.success;
         if (!valid_ && damp::is_constant_evaluated()) {
@@ -375,29 +363,29 @@ public:
     }
 
     /**
-     * @brief Construct from discrete PID gains, FO model coeffs, and delay samples
+     * @brief Construct from a PID design at Ts, FO model coeffs, and delay samples
      *
      * Convenience for PID-family @p Primary (same constructibility requirement as
      * the design-result constructor).
      *
-     * @param pid            Discretized primary controller gains
+     * @param pid            The primary controller's design (PIDGains::discretize)
      * @param a              Discrete FO pole
      * @param b              Discrete FO gain
      * @param delay_samples  Integer pure delay (≤ MaxDelay)
      */
     constexpr SmithPredictor(
-        const design::DiscretePIDGains<T>& pid,
-        T                                  a,
-        T                                  b,
-        size_t                             delay_samples
+        const design::PIDResult<T>& pid,
+        T                           a,
+        T                           b,
+        size_t                      delay_samples
     )
-        requires damp::constructible_from<Primary, const design::DiscretePIDGains<T>&>
+        requires damp::constructible_from<Primary, const design::PIDResult<T>&>
         : SmithPredictor(Primary(pid), a, b, delay_samples) {}
 
     /**
      * @brief Construct from an arbitrary SISO primary and FOPDT model coeffs
      *
-     * Use when @p Primary is not built from @ref design::DiscretePIDGains
+     * Use when @p Primary is not built from @ref design::PIDResult
      * (ADRC, lead-lag, custom law, etc.).
      *
      * @param primary        Primary controller instance

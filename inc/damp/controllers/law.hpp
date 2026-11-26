@@ -48,8 +48,10 @@ namespace damp {
  * oflqg.hpp include), and the observers
  * (estimation/fixed_gain_observer.hpp: FixedGainObserver, ReducedOrderObserver), design::eso (estimation/eso.hpp),
  * design::adrc (controllers/adrc.hpp) and the model inverses (design/model_inverse.hpp:
- * StateFeedforward, OutputInverse), which all run on constants when kRes is `constexpr`, and MPC
- * (controllers/mpc.hpp), whose QP data stays in members and whose filter, when it has one, is on constants.
+ * StateFeedforward, OutputInverse), which all run on constants when kRes is `constexpr`, MPC
+ * (controllers/mpc.hpp), whose QP data stays in members and whose filter, when it has one, is on
+ * constants, and PIDController (controllers/pid.hpp: design::PIDGains::discretize), whose gains
+ * stay members, settable at run time, in the narrowest mode a `constexpr` design's gains need.
  * design::kalman's Law also names its recursive filter, `Law<kRes, float>::Recursive`: the KalmanFilter
  * of the same model and noise, on the same constants when kRes is `constexpr`.
  *
@@ -58,7 +60,7 @@ namespace damp {
  */
 template<const auto& Res, typename T>
 struct Law {
-    static_assert(sizeof(T) == 0, "Law<res, T>: res is not a design result a law is built from; include its runtime's header (controllers/state_feedback_runtime.hpp or lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp, mpc.hpp, adrc.hpp, estimation/fixed_gain_observer.hpp, estimation/eso.hpp, design/model_inverse.hpp)");
+    static_assert(sizeof(T) == 0, "Law<res, T>: res is not a design result a law is built from; include its runtime's header (controllers/state_feedback_runtime.hpp or lqr.hpp, lqi.hpp, lqg.hpp, lqgi.hpp, oflqg.hpp, mpc.hpp, adrc.hpp, pid.hpp, estimation/fixed_gain_observer.hpp, estimation/eso.hpp, design/model_inverse.hpp)");
 };
 
 } // namespace damp

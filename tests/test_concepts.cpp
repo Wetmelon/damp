@@ -195,17 +195,17 @@ static_assert(ParameterEstimator<FirstOrderPlantEstimator<float>, 2, float>);
 // Runtime equivalence: the normalized forms are exactly the originals.
 // ============================================================================
 
-TEST_CASE("fixed-rate PID equals ContinuousPID ticked at the same Ts") {
+TEST_CASE("fixed-rate PID equals its measured-period step ticked at the same Ts") {
     constexpr double Ts = 1e-3;
 
-    SUBCASE("PID (discrete vs ContinuousPID at fixed Ts)") {
+    SUBCASE("PID (step(r, y) vs step(r, y, dt) at dt = Ts)") {
         design::PIDGains<double> gains{};
         gains.Kp = 2.0;
         gains.Ki = 10.0;
         gains.Kd = 0.05;
 
         PIDController<double> disc{gains.discretize(Ts)};
-        ContinuousPID<double> cont{gains};
+        PIDController<double> cont{gains.discretize(Ts)};
         for (int k = 0; k < 50; ++k) {
             const double r = 1.0;
             const double y = 0.1 * k * Ts;

@@ -67,7 +67,6 @@ constexpr auto kObserver = design::place_observer(
 );
 
 static constinit PIDController<float>               pid = kPid;
-static constinit ContinuousPID<float>               cpid = design::pid(2.0, 5.0, 0.1);
 static constinit ADRCController<2, float>           adrc = kAdrc;
 static constinit ESO<2, float>                      eso = kEso;
 static constinit SMCController<float>               smc = kSmc;
@@ -86,8 +85,7 @@ static constinit FixedGainObserver<2, 1, 1, float>  observer = kObserver;
 
 TEST_SUITE("assign from design") {
     TEST_CASE("a double design converts into a float runtime under constinit") {
-        CHECK(pid.Kp == doctest::Approx(2.0f));
-        CHECK(cpid.Ki == doctest::Approx(5.0f));
+        CHECK(pid.gains().Kp == doctest::Approx(2.0f));
         CHECK(observer.valid());
         CHECK(static_cast<double>(lowpass(1.0f)) == doctest::Approx(kLowPass.b[0]).epsilon(1e-6));
         CHECK(static_cast<double>(highpass(1.0f)) == doctest::Approx(kHighPass.b0).epsilon(1e-6));
@@ -107,7 +105,6 @@ TEST_SUITE("assign from design") {
 
     TEST_CASE("the runtime type deduces from the result's scalar") {
         PIDController             pd{kPid};
-        ContinuousPID             cd{design::pid(1.0, 1.0, 0.0)};
         ADRCController            ad{kAdrc};
         ESO                       es{kEso};
         SMCController             sd{kSmc};
@@ -120,7 +117,6 @@ TEST_SUITE("assign from design") {
         FirstOrderSection         hp{kHighPass};
         FixedGainObserver         ob{kObserver};
         static_assert(std::is_same_v<decltype(pd), PIDController<double>>);
-        static_assert(std::is_same_v<decltype(cd), ContinuousPID<double>>);
         static_assert(std::is_same_v<decltype(ad), ADRCController<2, double>>);
         static_assert(std::is_same_v<decltype(es), ESO<2, double>>);
         static_assert(std::is_same_v<decltype(sd), SMCController<double>>);
@@ -132,7 +128,7 @@ TEST_SUITE("assign from design") {
         static_assert(std::is_same_v<decltype(bq), Biquad<double>>);
         static_assert(std::is_same_v<decltype(hp), FirstOrderSection<double>>);
         static_assert(std::is_same_v<decltype(ob), FixedGainObserver<2, 1, 1, double>>);
-        CHECK(pd.Kp == doctest::Approx(2.0));
+        CHECK(pd.gains().Kp == doctest::Approx(2.0));
     }
 
     TEST_CASE("if (result) reads a design result's success") {

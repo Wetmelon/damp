@@ -614,24 +614,96 @@ TEST_SUITE("NaN guards") {
             rls.theta_lim.upper[0] = bad;
             CHECK_FALSE(rls.valid());
 
-            // Every gain a discrete PID runtime reads; a NaN Kd must not read as no derivative.
-            design::DiscretePIDGains<T> g{};
-            g.Kp = bad;
+            // Every gain a PID runtime reads, in a result built by hand past discretize's check; a
+            // NaN Kd must not read as no derivative.
+            design::PIDResult<T> g{.Ts = ts};
+            design::detail::set_status(g, DesignStatus::ok);
+            g.gains.Kp = bad;
             CHECK_FALSE(PIDController<T, PIDMode::PID>{g}.valid());
             CHECK_FALSE(PIDController<T, PIDMode::PI>{g}.valid());
             CHECK_FALSE(PIDController<T, PIDMode::PD>{g}.valid());
             CHECK_FALSE(PIDController<T, PIDMode::P>{g}.valid());
-            design::DiscretePIDGains<T> kd{};
-            kd.Kp = T{1};
-            kd.Kd = bad;
+            design::PIDResult<T> kd = g;
+            kd.gains.Kp = T{1};
+            kd.gains.Kd = bad;
             CHECK_FALSE(PIDController<T, PIDMode::PI>{kd}.valid());
             CHECK_FALSE(PIDController<T, PIDMode::P>{kd}.valid());
+            design::PIDResult<T> tt = g;
+            tt.gains.Kp = T{1};
+            tt.gains.tracking_time = bad;
+            CHECK_FALSE(PIDController<T, PIDMode::PI>{tt}.valid());
+            design::PIDResult<T> bad_ts = g;
+            bad_ts.gains.Kp = T{1};
+            bad_ts.Ts = bad;
+            CHECK_FALSE(PIDController<T, PIDMode::P>{bad_ts}.valid());
         }
         CHECK(SogiFll<T>(T{50}, ts, numbers::sqrt2_v<T>, T{0}).valid()); // Γ = 0: a fixed frequency
         CHECK(SmithPredictor<8, T>(PIController<T>{smith.pid}, smith.a, smith.b, 2).valid());
-        design::DiscretePIDGains<T> p{};
-        p.Kp = T{1};
+        design::PIDResult<T> p{.Ts = ts};
+        design::detail::set_status(p, DesignStatus::ok);
+        p.gains.Kp = T{1};
         CHECK(PIDController<T, PIDMode::P>{p}.valid());
+    }
+
+    TEST_CASE_TEMPLATE("PID set_gains and set_limits refuse a bad value at run time and change nothing", T, float, double) {
+        //! A gain or a limit that arrives at run time, from a tuning link or a config file.
+        const T          Ts = static_cast<T>(0.01);
+        PIDController<T> pid{design::PIDGains<T>{.Kp = T{2}, .Ki = T{4}, .Kd = static_cast<T>(0.1), .tracking_time = static_cast<T>(0.5), .Tf = static_cast<T>(0.02)}.discretize(Ts, {.input = {.lower = T{-1}, .upper = T{1}}})};
+        PIController<T>  pi{design::PIDGains<T>{.Kp = T{2}, .Ki = T{4}}.discretize(Ts)};
+        const auto       settle = [&] {
+            for (int k = 0; k < 20; ++k) {
+                (void)pid.step(T{1}, static_cast<T>(0.01) * static_cast<T>(k));
+                (void)pi.step(T{1}, static_cast<T>(0.01) * static_cast<T>(k));
+            }
+        };
+        settle();
+        const auto gains = pid.gains();
+        const auto limits = pid.limits();
+        const T    I = pid.integral();
+        const auto unchanged = [&] {
+            const auto g = pid.gains();
+            const auto l = pid.limits();
+            return bits_of(g.Kp) == bits_of(gains.Kp) && bits_of(g.Ki) == bits_of(gains.Ki) && bits_of(g.Kd) == bits_of(gains.Kd)
+                && bits_of(g.Tf) == bits_of(gains.Tf) && bits_of(g.tracking_time) == bits_of(gains.tracking_time)
+                && bits_of(g.b) == bits_of(gains.b) && bits_of(g.c) == bits_of(gains.c)
+                && bits_of(l.input.lower(0)) == bits_of(limits.input.lower(0)) && bits_of(l.input.upper(0)) == bits_of(limits.input.upper(0))
+                && bits_of(l.integral.lower(0)) == bits_of(limits.integral.lower(0)) && bits_of(l.integral.upper(0)) == bits_of(limits.integral.upper(0))
+                && bits_of(pid.integral()) == bits_of(I);
+        };
+        for (const T bad : non_finite<T>()) {
+            for (int field = 0; field < 7; ++field) {
+                auto     g = gains;
+                T* const slots[] = {&g.Kp, &g.Ki, &g.Kd, &g.Tf, &g.tracking_time, &g.b, &g.c};
+                *slots[field] = bad;
+                CHECK_FALSE(pid.set_gains(g));
+                CHECK(unchanged());
+            }
+            for (int end = 0; end < 4; ++end) {
+                auto     l = limits;
+                T* const ends[] = {&l.input.lower(0), &l.input.upper(0), &l.integral.lower(0), &l.integral.upper(0)};
+                *ends[end] = bad;
+                CHECK_FALSE(pid.set_limits(l));
+                CHECK(unchanged());
+            }
+        }
+        auto neg_tf = gains;
+        neg_tf.Tf = static_cast<T>(-0.001);
+        CHECK_FALSE(pid.set_gains(neg_tf));
+        auto neg_tt = gains;
+        neg_tt.tracking_time = static_cast<T>(-0.1);
+        CHECK_FALSE(pid.set_gains(neg_tt));
+        auto inverted = limits;
+        inverted.input = {.lower = T{1}, .upper = T{-1}};
+        CHECK_FALSE(pid.set_limits(inverted));
+        CHECK(unchanged());
+        auto with_d = pi.gains();
+        with_d.Kd = static_cast<T>(0.1); // a PI cannot realize the D term
+        const T pi_I = pi.integral();
+        CHECK_FALSE(pi.set_gains(with_d));
+        CHECK(pi.gains().Kd == T{0});
+        CHECK(pi.integral() == pi_I);
+        //! And the law runs on as it did.
+        CHECK(damp::isfinite(pid.step(T{1}, T{0})));
     }
 
     TEST_CASE_TEMPLATE("disk margins refuse a non-finite skew", T, float, double) {

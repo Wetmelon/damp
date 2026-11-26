@@ -31,7 +31,6 @@ static void delayMicroseconds(int) {}
 static constinit FOController<T> foc = {Ldq, Rs, lambda_pm, bw};
 
 void setup() {
-    foc.enable();
 }
 
 void loop() {

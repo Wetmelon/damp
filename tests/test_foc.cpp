@@ -30,26 +30,26 @@ TEST_SUITE("FOC Controller") {
         foc.tune(omega_bw); // default zeta = 1 (critically damped)
 
         // Kp = 2*zeta*wn*L - R, Ki = L*wn^2, per axis
-        CHECK(foc.dctrl.Kp == doctest::Approx((2.0f * omega_bw * Ld) - R));
-        CHECK(foc.dctrl.Ki == doctest::Approx(Ld * omega_bw * omega_bw));
-        CHECK(foc.dctrl.Kbc == doctest::Approx(foc.dctrl.Kp));
+        CHECK(foc.dctrl.gains().Kp == doctest::Approx((2.0f * omega_bw * Ld) - R));
+        CHECK(foc.dctrl.gains().Ki == doctest::Approx(Ld * omega_bw * omega_bw));
+        CHECK(foc.dctrl.gains().tracking_time == doctest::Approx(foc.dctrl.gains().Kp / foc.dctrl.gains().Ki)); // T_t = T_i
 
-        CHECK(foc.qctrl.Kp == doctest::Approx((2.0f * omega_bw * Lq) - R));
-        CHECK(foc.qctrl.Ki == doctest::Approx(Lq * omega_bw * omega_bw));
-        CHECK(foc.qctrl.Kbc == doctest::Approx(foc.qctrl.Kp));
+        CHECK(foc.qctrl.gains().Kp == doctest::Approx((2.0f * omega_bw * Lq) - R));
+        CHECK(foc.qctrl.gains().Ki == doctest::Approx(Lq * omega_bw * omega_bw));
+        CHECK(foc.qctrl.gains().tracking_time == doctest::Approx(foc.qctrl.gains().Kp / foc.qctrl.gains().Ki));
 
         // q-axis has larger inductance -> larger gains
-        CHECK(foc.qctrl.Kp > foc.dctrl.Kp);
+        CHECK(foc.qctrl.gains().Kp > foc.dctrl.gains().Kp);
 
         // 10 rad/s is slower than the R/L pole: the PI cancels it, Kp = ωL, Ki = ωR.
         CHECK(foc.tune(10.0f));
-        CHECK(foc.dctrl.Kp == doctest::Approx(10.0f * Ld));
-        CHECK(foc.qctrl.Ki == doctest::Approx(10.0f * R));
+        CHECK(foc.dctrl.gains().Kp == doctest::Approx(10.0f * Ld));
+        CHECK(foc.qctrl.gains().Ki == doctest::Approx(10.0f * R));
 
         // An out-of-range input is refused and the gains kept.
-        const float Kp_d = foc.dctrl.Kp;
+        const float Kp_d = foc.dctrl.gains().Kp;
         CHECK_FALSE(foc.tune(-1.0f));
-        CHECK(foc.dctrl.Kp == Kp_d);
+        CHECK(foc.dctrl.gains().Kp == Kp_d);
     }
 
     TEST_CASE("FOC tuning uses pid_pole_placement") {
@@ -63,9 +63,9 @@ TEST_SUITE("FOC Controller") {
         constexpr auto                   via_kernel = damp::design::pid_pole_placement(damp::TransferFunction<1, 2, float>{.num = {1.0F}, .den = {L, R}}, {.omega = omega, .zeta = zeta, .b = b});
         damp::motor::FOController<float> foc({.d = L, .q = L}, R, 0.0f);
         foc.tune(omega, zeta, b);
-        CHECK(foc.dctrl.Kp == doctest::Approx(via_kernel.Kp));
-        CHECK(foc.dctrl.Ki == doctest::Approx(via_kernel.Ki));
-        CHECK(foc.dctrl.b == doctest::Approx(via_kernel.b));
+        CHECK(foc.dctrl.gains().Kp == doctest::Approx(via_kernel.Kp));
+        CHECK(foc.dctrl.gains().Ki == doctest::Approx(via_kernel.Ki));
+        CHECK(foc.dctrl.gains().b == doctest::Approx(via_kernel.b));
     }
 
     TEST_CASE("Voltage-circle limit and anti-windup") {
@@ -87,11 +87,11 @@ TEST_SUITE("FOC Controller") {
         // Anti-windup: the integrator must stop growing once saturated. Without
         // back-calculation it would ramp by Ki*e*Ts every step; with it, the
         // value over a further 200 saturated steps is essentially unchanged.
-        const float i_settled = foc.qctrl.integral;
+        const float i_settled = foc.qctrl.integral();
         for (int k = 0; k < 200; ++k) {
             (void)foc.current_controller(Idq_ref, Idq, 0.0f, Ts, Vmax);
         }
-        CHECK(std::abs(foc.qctrl.integral - i_settled) * foc.qctrl.Ki < 1.0f);
+        CHECK(std::abs(foc.qctrl.integral() - i_settled) * foc.qctrl.gains().Ki < 1.0f);
     }
 
     TEST_CASE("current_controller returns a clamped voltage command") {
@@ -168,18 +168,19 @@ TEST_SUITE("FOC Controller") {
         CHECK(res.Kp == doctest::Approx((2.0 * wbw * L) - R));
         CHECK(res.Ki == doctest::Approx(L * wbw * wbw));
         CHECK(res.Kd == doctest::Approx(0.0));
-        CHECK(res.Kbc == doctest::Approx(res.Kp)); // T_t = T_i anti-windup seed
+        CHECK(res.tracking_time == doctest::Approx(res.Kp / res.Ki)); // T_t = T_i anti-windup seed
         CHECK(res.b == doctest::Approx(1.0));
 
         // Regression: output/integrator limits must stay unbounded. A positional
         // brace-init slip {Kp, Ki, Kd, Ts} once landed Ts in the output-limit slot, which
-        // tune() discards (so gains looked fine) but which would silently clamp any
-        // PIDController built straight from the result.
+        // would silently clamp any PIDController built straight from the result. The limits
+        // are discretize's now, unbounded unless given.
         constexpr double inf = std::numeric_limits<double>::max();
-        CHECK(res.u_lim.lower(0) == -inf);
-        CHECK(res.u_lim.upper(0) == inf);
-        CHECK(res.integral_lim.lower(0) == -inf);
-        CHECK(res.integral_lim.upper(0) == inf);
+        const auto       deployed = res.discretize(1e-4);
+        CHECK(deployed.limits.input.lower(0) == -inf);
+        CHECK(deployed.limits.input.upper(0) == inf);
+        CHECK(deployed.limits.integral.lower(0) == -inf);
+        CHECK(deployed.limits.integral.upper(0) == inf);
 
         // The setpoint weight propagates for the I-P structure.
         CHECK(damp::design::pid_pole_placement(damp::TransferFunction<1, 2>{.num = {1.0}, .den = {L, R}}, {.omega = wbw, .zeta = 1.0, .b = 0.0}).b == doctest::Approx(0.0));
@@ -190,12 +191,12 @@ TEST_SUITE("FOC Controller") {
         damp::motor::FOController<float> foc({.d = 200e-6f, .q = 200e-6f}, 0.5f, 0.1f);
 
         foc.tune(wbw); // default b = 1 -> standard PI on both axes
-        CHECK(foc.dctrl.b == doctest::Approx(1.0f));
-        CHECK(foc.qctrl.b == doctest::Approx(1.0f));
+        CHECK(foc.dctrl.gains().b == doctest::Approx(1.0f));
+        CHECK(foc.qctrl.gains().b == doctest::Approx(1.0f));
 
         foc.tune(wbw, 1.0f, 0.0f); // b = 0 -> I-P
-        CHECK(foc.dctrl.b == doctest::Approx(0.0f));
-        CHECK(foc.qctrl.b == doctest::Approx(0.0f));
+        CHECK(foc.dctrl.gains().b == doctest::Approx(0.0f));
+        CHECK(foc.qctrl.gains().b == doctest::Approx(0.0f));
     }
 
     TEST_CASE("I-P removes the proportional step-kick") {
@@ -221,8 +222,8 @@ TEST_SUITE("FOC Controller") {
         // structures share the same integral term (Ki*e*Ts). The structural difference
         // is purely the proportional path: PI feeds Kp*(r - y), I-P feeds Kp*(0 - y),
         // so the step-kick PI carries over I-P is exactly Kp*r.
-        CHECK((vq_pi - vq_ip) == doctest::Approx(pi.qctrl.Kp * 1.0f)); // proportional step-kick
-        CHECK(vq_ip == doctest::Approx(ip.qctrl.Ki * Ts));             // I-P: only the integral acts
+        CHECK((vq_pi - vq_ip) == doctest::Approx(pi.qctrl.gains().Kp * 1.0f)); // proportional step-kick
+        CHECK(vq_ip == doctest::Approx(ip.qctrl.gains().Ki * Ts));             // I-P: only the integral acts
     }
 
     TEST_CASE("back-EMF saturation does not charge the current integrator") {
@@ -232,8 +233,8 @@ TEST_SUITE("FOC Controller") {
         const auto                    cmd = foc.current_controller(idq, idq, 8000.0f, Ts, 10.0f);
         CHECK(cmd.is_saturated);
         CHECK(cmd.Vdq.abs() == doctest::Approx(10.0f).epsilon(1e-4f));
-        CHECK(std::abs(foc.qctrl.integral) < 1.0f);
-        CHECK(std::abs(foc.dctrl.integral) < 1.0f);
+        CHECK(std::abs(foc.qctrl.integral()) < 1.0f);
+        CHECK(std::abs(foc.dctrl.integral()) < 1.0f);
     }
 
     TEST_CASE("non-positive Vmax forces zero voltage") {
@@ -243,6 +244,21 @@ TEST_SUITE("FOC Controller") {
         CHECK(cmd.is_saturated);
         CHECK(cmd.Vdq.d == doctest::Approx(0.0f));
         CHECK(cmd.Vdq.q == doctest::Approx(0.0f));
+    }
+
+    TEST_CASE("track hands the current loops over from the applied voltage, feedforward included") {
+        damp::motor::FOController<float> foc({.d = 200e-6f, .q = 300e-6f}, 0.5f, 0.01f);
+        foc.tune(2.0f * std::numbers::pi_v<float> * 800.0f);
+        const damp::DirectQuadrature<float> ref{.d = 0.0f, .q = 4.0f};
+        const damp::DirectQuadrature<float> meas{.d = 0.3f, .q = 2.5f};
+        const damp::DirectQuadrature<float> applied{.d = -1.5f, .q = 3.0f}; // what another source drove
+        constexpr float                     omega_e = 900.0f;
+        for (int k = 0; k < 5; ++k) {
+            foc.track(applied, ref, meas, omega_e, Ts);
+        }
+        const auto cmd = foc.current_controller(ref, meas, omega_e, Ts);
+        CHECK(cmd.Vdq.d == doctest::Approx(applied.d).epsilon(1e-4f));
+        CHECK(cmd.Vdq.q == doctest::Approx(applied.q).epsilon(1e-4f));
     }
 
     TEST_CASE("SPM datasheet constant conversions") {

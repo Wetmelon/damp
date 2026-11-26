@@ -30,8 +30,8 @@ static constexpr int OUTPUT = 1;
 #define loop loop_
 #endif
 
-static constinit PIController<float> rate_pi = rate_pi_design.discretize(Ts).as<float>();
-static constinit PIController<float> angle_pi = angle_pi_design.discretize(Ts).as<float>();
+static constinit PIController<float> rate_pi = rate_pi_design.discretize(Ts, rate_pi_limits).as<float>();
+static constinit PIController<float> angle_pi = angle_pi_design.discretize(Ts, angle_pi_limits).as<float>();
 
 static float theta_ref = 0.0f;
 

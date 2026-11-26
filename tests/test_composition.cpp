@@ -98,12 +98,12 @@ TEST_SUITE("Cascade and SwitchedController") {
 
     TEST_CASE("Cascade holds the outer integral while the inner command is clamped") {
         const auto                                                 outer_gains = design::PIDGains<double>{.Kp = 1.0, .Ki = 10.0}.discretize(0.01);
-        const auto                                                 inner_gains = design::PIDGains<double>{.Kp = 2.0, .u_lim = {.lower = -1.0, .upper = 1.0}}.discretize(0.01);
+        const auto                                                 inner_gains = design::PIDGains<double>{.Kp = 2.0}.discretize(0.01, {.input = {.lower = -1.0, .upper = 1.0}});
         Cascade<PIController<double>, PController<double>, double> cas{PIController<double>{outer_gains}, PController<double>{inner_gains}};
         for (int k = 0; k < 100; ++k) {
             CHECK(cas.step(5.0, 0.0, 0.0) == 1.0); // the inner loop sits on its limit
         }
-        CHECK(cas.outer().integral == 0.0); // was 100·Ki·Ts·5 = 50: it ran on while the inner loop could not follow
+        CHECK(cas.outer().integral() == 0.0); // was 100·Ki·Ts·5 = 50: it ran on while the inner loop could not follow
 
         // The same through a clamp after the cascade, reported with back_calculate.
         const auto                                                 open_inner = design::PIDGains<double>{.Kp = 2.0}.discretize(0.01);
@@ -111,11 +111,11 @@ TEST_SUITE("Cascade and SwitchedController") {
         for (int k = 0; k < 100; ++k) {
             told.back_calculate(damp::min(told.step(5.0, 0.0, 0.0), 1.0));
         }
-        CHECK(told.outer().integral == 0.0);
+        CHECK(told.outer().integral() == 0.0);
 
         // Once the inner loop follows again, the outer integral moves.
         static_cast<void>(cas.step(0.4, 0.0, 0.5)); // r_inner = 0.44: inner 2·(0.44 − 0.5) inside ±1
-        CHECK(cas.outer().integral > 0.0);
+        CHECK(cas.outer().integral() > 0.0);
     }
 
     TEST_CASE("SwitchedController starts a PID switched in from the command the plant last received") {
@@ -133,5 +133,22 @@ TEST_SUITE("Cascade and SwitchedController") {
         sw.back_calculate(4.0); // the plant received 4
         sw.set_mode(SwitchMode::Normal);
         CHECK(sw.step(0.5, 0.5) == doctest::Approx(4.0));
+    }
+
+    TEST_CASE("SwitchedController hands over exactly at r ≠ y with a setpoint weight b ≠ 1 (#87)") {
+        //! The old track(u, y) preloaded the integral as if r = y: the first command of a PID switched
+        //! in was u + Kp·(b·r − y) − Kp·(b − 1)·y, 2.4 off here. track(u, r, y) preloads at this r.
+        const auto gains = design::PIDGains<double>{.Kp = 2.0, .Ki = 10.0, .Kd = 0.05, .b = 0.4, .c = 0.0, .Tf = 0.01}.discretize(0.01, {.input = {.lower = -20.0, .upper = 20.0}});
+        using Law = PIDController<double>;
+        SwitchedController<Law, Law, Law, double> sw{Law{gains}, Law{gains}, Law{gains}};
+        double                                    u = 0.0;
+        for (int k = 0; k < 50; ++k) {
+            u = sw.step(3.0, 0.02 * static_cast<double>(k));
+        }
+        sw.set_mode(SwitchMode::Backup);
+        CHECK(sw.step(2.5, 1.3) == doctest::Approx(u).epsilon(1e-12)); // r and y both moved at the switch
+        CHECK(sw.backup().last_command() == doctest::Approx(u).epsilon(1e-12));
+        const double next = sw.step(2.5, 1.3);
+        CHECK(damp::abs(next - u) < 0.2); // then the law's own: one tick of the integral, no jump
     }
 }

@@ -27,8 +27,10 @@ inline constexpr float Ts = 0.01f; // 100 Hz
 
 // Prefer: design → discretize → as<float> → assign into the runtime type.
 // discretize in double so static constinit is a constant expression under GCC.
-// For limits / setpoint weights / filter, name them:
-// design::PIDGains{.Kp = 4.0, .Ki = 8.0, .u_lim = {.lower = -12.0, .upper = 12.0}}.
+// For setpoint weights / filter / tracking time, name them:
+// design::PIDGains{.Kp = 4.0, .Ki = 8.0, .b = 0.5}; limits go to discretize,
+// .discretize(Ts, {.input = {.lower = -12.0, .upper = 12.0}}), and the law takes new gains and
+// limits at run time with set_gains / set_limits.
 inline constexpr auto pi_design = design::pid(4.0, 8.0, 0.0);
 
 /**

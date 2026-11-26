@@ -18,8 +18,8 @@
 using namespace damp;
 using namespace damp::examples_reaction_wheel;
 
-static constinit PIController          rate_pi = rate_pi_design.discretize(Ts).as<float>();
-static constinit PIController          angle_pi = angle_pi_design.discretize(Ts).as<float>();
+static constinit PIController          rate_pi = rate_pi_design.discretize(Ts, rate_pi_limits).as<float>();
+static constinit PIController          angle_pi = angle_pi_design.discretize(Ts, angle_pi_limits).as<float>();
 static constinit Law<adrc_res, float>  adrc;
 static constinit SMCController         smc{smc_res.as<float>()};
 static constinit STSMCController       stsmc{stsmc_res.as<float>()};

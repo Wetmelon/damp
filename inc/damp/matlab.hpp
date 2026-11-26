@@ -240,8 +240,8 @@ using damp::ss2tf;
  *
  * Returns the continuous design::PIDGains, as the rest of the PID family (pidstd,
  * pidstd2, make1DOF, make2DOF, pidtune) does; @p Tf is the derivative filter time
- * constant (0 = unfiltered). Deploy fixed-rate with `PIDController{matlab::pid(...).discretize(Ts)}`,
- * or hand the gains to `ContinuousPID{matlab::pid(...)}` when the period is measured each tick.
+ * constant (0 = unfiltered). Deploy with `PIDController{matlab::pid(...).discretize(Ts)}`, which
+ * ticks at Ts with step(r, y), or at a period measured each tick with step(r, y, dt).
  *
  * @note Compare with MATLAB®'s C = pid(Kp, Ki, Kd, Tf). MATLAB®'s filter
  *       coefficient N maps to Tf = 1/N.

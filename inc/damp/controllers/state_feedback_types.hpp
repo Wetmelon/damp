@@ -299,7 +299,7 @@ template<typename Terms, typename... Opts>
  * through the gain, ξ moves input j by K(j, NX + i)·ξᵢ. The runtime moves it at run time with
  * set_limits (StateFeedbackLimits::integral), and refuses it as it refuses the InputLimits.
  *
- * tracking_time picks how the integrators meet a clamp, as PID's Kbc does. At 0, the default, an
+ * tracking_time picks how the integrators meet a clamp, as PIDGains::tracking_time does. At 0, the default, an
  * integrator holds where integrating its error would push a clamped input further (conditional
  * integration): it stops, and keeps what it had. Above 0 it integrates as ever and is pulled toward
  * the value that would have asked for the input applied (back-calculation),
@@ -307,8 +307,8 @@ template<typename Terms, typename... Opts>
  *   \xi \leftarrow \xi + T_s\, e + \min\!\left(\tfrac{T_s}{T_t}, 1\right)
  *   \left(\tfrac{\partial u}{\partial \xi}\right)^{+} \left(u_{\text{applied}} - u_{\text{asked}}\right),
  * @f]
- * the pseudo-inverse spreading the excess over the integrators by least squares, T_t = Kbc/Ki on a
- * PID. A tracking time up to Ts takes the whole excess each tick: the integrators track the clamp.
+ * the pseudo-inverse spreading the excess over the integrators by least squares, the PID's ΔI on
+ * one integrator. A tracking time up to Ts takes the whole excess each tick: the integrators track the clamp.
  * A longer one takes a share, never more than the whole: past that it would overshoot the
  * realizable command, and past twice it diverges.
  *
@@ -319,7 +319,7 @@ template<typename Terms, typename... Opts>
  * go, and it takes back each excursion of noise that reaches the clamp, from that side only: an LQI
  * at 96% of its limit with noise on its reading settles with an offset about 13 times holding's,
  * and a slow integrator gives back for seconds what a short clamp took from it. Holding keeps what
- * the integrators carry, which is why it is the default, as Kbc = 0 is on a PID. It is a member of
+ * the integrators carry, which is why it is the default, as tracking_time = 0 is on a PID. It is a member of
  * the result and of the runtime, `law.tracking_time`, set at run time; one that is negative or not
  * finite is refused.
  *

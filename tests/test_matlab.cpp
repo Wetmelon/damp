@@ -172,7 +172,7 @@ TEST_SUITE("matlab") {
         CHECK(pid_result.Kp > 0);
         CHECK(pid_result.Ki > 0);
         CHECK(pid_result.Kd > 0);
-        CHECK(pid_result.Kbc > 0); // Back-calculation gain
+        CHECK(pid_result.tracking_time > 0); // Back-calculation tracking time
     }
 
     TEST_CASE("c2d returns a DiscretizationResult and fails closed on bad TF") {
@@ -345,8 +345,8 @@ TEST_SUITE("matlab") {
         const auto two = matlab::make2DOF(c, 1.0, 0.0);
         CHECK(two.Kd == doctest::Approx(0.1));
         CHECK(two.c == doctest::Approx(0.0));
-        const ContinuousPID<double> runtime{c};
-        CHECK(runtime.Kp == doctest::Approx(1.0));
+        const PIDController<double> runtime{c.discretize(1e-3)};
+        CHECK(runtime.gains().Kp == doctest::Approx(1.0));
     }
 
     TEST_CASE("MATLAB® ones, eye and minreal's default tolerance") {

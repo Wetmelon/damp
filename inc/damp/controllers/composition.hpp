@@ -39,13 +39,14 @@ namespace damp {
  *     u_outer = outer.step(r, y_outer)
  *     u       = inner.step(u_outer, y_inner)
  *
- * While the inner law's command is clamped, at its own u_lim or by a clamp reported with
+ * While the inner law's command is clamped, at its own output limit or by a clamp reported with
  * back_calculate, the inner loop cannot follow its reference, and the outer law is told its
  * command was held at the last one the inner loop could follow, the outer command of the last
  * tick that went out uncut: back_calculate of it. Its memory holds as against a clamp of its own
  * (an outer PI's integral gives back what each tick added past it), where it ran on for as long
- * as the inner loop could not follow and overshot when it could. An inner law without a u_lim
- * tells only through back_calculate.
+ * as the inner loop could not follow and overshot when it could. The inner law's output limit is
+ * limits().input on a law that has limits() (the PID family), else its u_lim; an inner law with
+ * neither tells only through back_calculate.
  *
  * Typical use: outer position / voltage loop, inner velocity / current.
  * Alias CascadePPI for PI+PI when both loops are PIController.
@@ -79,7 +80,12 @@ public:
         r_inner_ = outer_.step(r, y_outer);
         u_cmd_ = inner_.step(r_inner_, y_inner);
         cut_ = false;
-        if constexpr (requires { inner_.u_lim.lower(0); }) {
+        if constexpr (requires { inner_.limits().input.lower(0); }) {
+            const auto lim = inner_.limits().input;
+            if (!(lim.lower(0) < u_cmd_ && u_cmd_ < lim.upper(0))) {
+                hold_outer(); // the inner command is on its limit
+            }
+        } else if constexpr (requires { inner_.u_lim.lower(0); }) {
             if (!(inner_.u_lim.lower(0) < u_cmd_ && u_cmd_ < inner_.u_lim.upper(0))) {
                 hold_outer(); // the inner command is on its limit
             }
@@ -153,10 +159,10 @@ enum class SwitchMode : uint8_t {
  * @brief Switch between normal, experiment, and backup SISO laws.
  *
  * All three slots are SisoControllers. On mode change the newly active law is @c reset(), so
- * integrators do not inherit foreign state. A law with a tracking mode (`track(u, y)` and
- * `enable()`, as PIDController) is then preloaded at the next tick from the command the plant
- * last received, at that tick's measurement, so it resumes from it: the command does not jump
- * but by its proportional term on the error. A law without one starts from its reset state.
+ * integrators do not inherit foreign state. A law with `track(u, r, y)` (the PID family) then
+ * tracks, at the next tick's reference and measurement, the command the plant last received, and
+ * that tick's step starts exactly from it: the first command is the last applied input. A law
+ * without one starts from its reset state.
  * back_calculate goes to the active law. The experiment path is still a controller shape: wrap
  * relay/FRF drivers with a small adapter if needed, or set mode to Experiment and call
  * @ref inject when u comes from outside.
@@ -180,8 +186,8 @@ public:
     [[nodiscard]] constexpr SwitchMode mode() const { return mode_; }
 
     /**
-     * @brief Select active path; resets the newly selected controller, and preloads one with a
-     *        tracking mode at the next tick.
+     * @brief Select active path; resets the newly selected controller, and preloads one with
+     *        track(u, r, y) at the next tick.
      */
     constexpr void set_mode(SwitchMode m) {
         if (m == mode_) {
@@ -197,10 +203,9 @@ public:
      */
     [[nodiscard]] constexpr T step(T r, T y) {
         on_active([&](auto& law) {
-            if constexpr (requires { law.track(applied_, y); law.enable(); }) {
+            if constexpr (requires { law.track(applied_, r, y); }) {
                 if (handover_) {
-                    law.track(applied_, y); // the integrator takes what the plant last received
-                    law.enable();
+                    law.track(applied_, r, y); // the step below at this (r, y) returns what the plant last received
                 }
             }
             last_u_ = law.step(r, y);

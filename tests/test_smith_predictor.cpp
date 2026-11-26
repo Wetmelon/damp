@@ -156,13 +156,14 @@ TEST_SUITE("Smith Predictor") {
         CHECK(sp.a == doctest::Approx(a_ref).epsilon(1e-12));
         CHECK(sp.b == doctest::Approx(b_ref).epsilon(1e-12));
         CHECK(sp.pid.Ts == doctest::Approx(Ts));
-        CHECK(sp.pid.Kp > 0.0);
-        CHECK(sp.pid.Ki > 0.0); // PI from SIMC
+        CHECK(sp.pid.gains.Kp > 0.0);
+        CHECK(sp.pid.gains.Ki > 0.0); // PI from SIMC
 
-        // SIMC on delay-free plant: Kp = tau / (K * tau_c)
+        // SIMC on delay-free plant: Kp = tau / (K * tau_c). The packed PIDResult carries the
+        // continuous gains and Ts (the discrete Ki·Ts is the runtime's).
         const auto cont = design::simc(K, 0.0, tau, tau_c, PIDMode::PI);
-        CHECK(sp.pid.Kp == doctest::Approx(cont.Kp));
-        CHECK(sp.pid.Ki == doctest::Approx(cont.Ki * Ts));
+        CHECK(sp.pid.gains.Kp == doctest::Approx(cont.Kp));
+        CHECK(sp.pid.gains.Ki == doctest::Approx(cont.Ki));
     }
 
     TEST_CASE("design rejects non-physical FOPDT") {
@@ -185,8 +186,9 @@ TEST_SUITE("Smith Predictor") {
         constexpr auto pid = design::pid(2.0, 0.4, 0.0);
         constexpr auto sp = design::smith_predictor_from_pid(pid, 1.0, 4.0, 1.0, 0.1);
         static_assert(sp.success);
-        CHECK(sp.pid.Kp == doctest::Approx(2.0));
-        CHECK(sp.pid.Ki == doctest::Approx(0.4 * 0.1));
+        CHECK(sp.pid.gains.Kp == doctest::Approx(2.0));
+        CHECK(sp.pid.gains.Ki == doctest::Approx(0.4)); // continuous, at sp.pid.Ts = 0.1
+        CHECK(sp.pid.Ts == doctest::Approx(0.1));
         CHECK(sp.delay_samples == 10);
     }
 
@@ -433,13 +435,13 @@ TEST_SUITE("Smith Predictor") {
     }
 
     TEST_CASE("smith designs carry a failed primary's status and refuse an unrepresentable delay") {
-        // A Kbc against Ki's sign is refused by discretize; the Smith design used to report success.
-        auto wrong_kbc = design::pid(2.0, 0.4, 0.0);
-        wrong_kbc.Kbc = -1.0;
-        const auto from_bad_kbc = design::smith_predictor_from_pid(wrong_kbc, 1.0, 4.0, 1.0, 0.1);
-        CHECK_FALSE(from_bad_kbc.success);
-        CHECK(from_bad_kbc.status == design::DesignStatus::invalid_parameter);
-        SmithPredictor<16, double> runtime(from_bad_kbc);
+        // A negative tracking time is refused by discretize; the Smith design used to report success.
+        auto wrong_tt = design::pid(2.0, 0.4, 0.0);
+        wrong_tt.tracking_time = -1.0;
+        const auto from_bad_tt = design::smith_predictor_from_pid(wrong_tt, 1.0, 4.0, 1.0, 0.1);
+        CHECK_FALSE(from_bad_tt.success);
+        CHECK(from_bad_tt.status == design::DesignStatus::invalid_parameter);
+        SmithPredictor<16, double> runtime(from_bad_tt);
         CHECK_FALSE(runtime.valid());
 
         const auto failed_tuning = design::simc(0.0, 0.0, 4.0, 1.0); // K = 0: refused
