@@ -41,6 +41,11 @@ using SwitchedPI = SwitchedController<PI, PI, PI, float>;
 template<typename C, typename T>
 concept CascadeTracking = requires(C c, T u, T r, T y_outer, T y_inner) { c.track(u, r, y_outer, y_inner); };
 
+/** @brief An optimizer's handover: track(u), its operating point started from the input applied, as its step takes no reference. */
+template<typename C, typename T>
+concept OptimizerTracking = requires(C c, T u) { c.track(u); };
+
+using ESC = ExtremumSeekingController<float>;
 /** @brief The handover of a law with an error-form step(e): track(u, e). */
 template<typename C, typename T>
 concept ErrorTracking = requires(C c, T u, T e) { c.track(u, e); };
@@ -56,6 +61,21 @@ static_assert(SisoLaw<PIDController<double>, double>);
 static_assert(SisoLaw<PIController<float>, float>);
 static_assert(SisoLaw<PDController<float>, float>);
 static_assert(SisoLaw<PController<float>, float>);
+static_assert(SisoLaw<SMCController<float>, float>);
+static_assert(SisoLaw<SMCController<double>, double>);
+static_assert(SisoLaw<STSMCController<float>, float>);
+static_assert(SisoLaw<ADRCController<1, float>, float>);
+static_assert(SisoLaw<ADRCController<2, float>, float>);
+static_assert(SisoLaw<SmithPredictor<16, float>, float>);
+static_assert(SisoLaw<SmithPredictor<16, float, SMCController<float>>, float>);
+static_assert(SisoLaw<SwitchedPI, float>);
+
+// Cascade: not a SisoController (step(r, y_outer, y_inner)); its contract is limits() (the inner law's), track(u, r, y_outer, y_inner), last_command() and valid().
+static_assert(HoldsLimits<CascadePI> && CascadeTracking<CascadePI, float> && ReportsCommand<CascadePI, float> && ReportsValidity<CascadePI>);
+
+// ExtremumSeekingController: an optimizer (step(J, valid)), not a SisoController; its contract is limits(), track(u), last_command() and valid().
+static_assert(HoldsLimits<ESC> && OptimizerTracking<ESC, float> && ReportsCommand<ESC, float> && ReportsValidity<ESC>);
+static_assert(!SisoController<ESC, float>);
 static_assert(SisoLaw<PRController<float>, float> && ErrorTracking<PRController<float>, float>);
 static_assert(SisoLaw<PRController<double, 3>, double>); // a bank, design::Harmonics
 static_assert(SisoLaw<LeadLagController<float>, float> && ErrorTracking<LeadLagController<float>, float>);
@@ -79,50 +99,12 @@ static_assert(damp::constructible_from<SMCController<float>, design::SMCResult<f
 static_assert(damp::constructible_from<STSMCController<float>, design::STSMCResult<float>>);
 static_assert(damp::constructible_from<ADRCController<2, float>, design::ADRCResult<2, float>>);
 static_assert(damp::constructible_from<ExtremumSeekingController<float>, design::ESCResult<float>>);
-static_assert(damp::constructible_from<SmithPredictor<16, float>, design::SmithPredictorResult<float>>);
+static_assert(damp::constructible_from<SmithPredictor<16, float>, design::SmithPredictorResult<float, 16>>);
 
 // ---------------------------------------------------------------------------------------------
-// Known gaps (#142): each PR deletes the lines it closes and moves the law up.
+// Known gaps: none. A runtime that misses part of the contract is listed here, as a
+// static_assert(!…) of what it lacks, until a PR closes it and moves the runtime up.
 // ---------------------------------------------------------------------------------------------
-
-// SMCController: a public u_lim, no track, no last_command.
-static_assert(SisoController<SMCController<float>, float> && ReportsValidity<SMCController<float>>);
-static_assert(!HoldsLimits<SMCController<float>>);
-static_assert(!SisoTracking<SMCController<float>, float>);
-static_assert(!ReportsCommand<SMCController<float>, float>);
-
-// STSMCController: a public u_lim, no track.
-static_assert(SisoController<STSMCController<float>, float> && ReportsCommand<STSMCController<float>, float> && ReportsValidity<STSMCController<float>>);
-static_assert(!HoldsLimits<STSMCController<float>>);
-static_assert(!SisoTracking<STSMCController<float>, float>);
-
-// ADRCController: a public u_lim, no track.
-static_assert(SisoController<ADRCController<2, float>, float> && ReportsCommand<ADRCController<2, float>, float> && ReportsValidity<ADRCController<2, float>>);
-static_assert(!HoldsLimits<ADRCController<2, float>>);
-static_assert(!SisoTracking<ADRCController<2, float>, float>);
-
-// SmithPredictor: no limits() (its primary's), no track, no last_command.
-static_assert(SisoController<SmithPredictor<16, float>, float> && ReportsValidity<SmithPredictor<16, float>>);
-static_assert(!HoldsLimits<SmithPredictor<16, float>>);
-static_assert(!SisoTracking<SmithPredictor<16, float>, float>);
-static_assert(!ReportsCommand<SmithPredictor<16, float>, float>);
-
-// SwitchedController: no limits(), no track, no valid().
-static_assert(SisoController<SwitchedPI, float> && ReportsCommand<SwitchedPI, float>);
-static_assert(!HoldsLimits<SwitchedPI>);
-static_assert(!SisoTracking<SwitchedPI, float>);
-static_assert(!ReportsValidity<SwitchedPI>);
-
-// Cascade: not a SisoController (step(r, y_outer, y_inner)); its contract is limits(), track(u, r, y_outer, y_inner), last_command() and valid().
-static_assert(ReportsCommand<CascadePI, float>);
-static_assert(!HoldsLimits<CascadePI>);
-static_assert(!CascadeTracking<CascadePI, float>);
-static_assert(!ReportsValidity<CascadePI>);
-
-// ExtremumSeekingController: an optimizer (step(J, valid)), not a SisoController; its contract is limits(), last_command() and valid().
-static_assert(ReportsValidity<ExtremumSeekingController<float>>);
-static_assert(!HoldsLimits<ExtremumSeekingController<float>>);
-static_assert(!ReportsCommand<ExtremumSeekingController<float>, float>);
 
 TEST_SUITE("Runtime contract") {
     TEST_CASE("every SISO runtime is checked against the contract at compile time") {

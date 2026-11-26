@@ -16,7 +16,7 @@
  * | Role                     | Per-tick shape                    | Examples                          |
  * |--------------------------|-----------------------------------|-----------------------------------|
  * | SisoController           | `u = step(r, y)`, `back_calculate(u_sat, u_ff)` | PID, ADRC, SMC, lead-lag, PR      |
- * | SisoLaw                  | SisoController + `limits()`/`set_limits()`, `track(u, r, y)`, `last_command()`, `valid()` | PID (tests/test_contract.cpp lists the others' gaps) |
+ * | SisoLaw                  | SisoController + `limits()`/`set_limits()`, `track(u, r, y)`, `last_command()`, `valid()` | PID, PR, lead-lag, SMC, STSMC, ADRC, Smith, SwitchedController (tests/test_contract.cpp) |
  * | FeedbackRuntime          | `update(m)`, `predict()`, `back_calculate(u)` | LQR, LQI, LQG, LQGI, OFLQG, MPC, OFMPC (lifecycle) |
  * | FeedbackLaw              | FeedbackRuntime + `control(r)`, `step(r, m)`, `track(u, r, m)` | LQI, LQGI, OFLQG, OFMPC, LQR/LQG/MPC with TrackedOutputs |
  * | StateEstimator           | `x̂ = step(y, u)`, `state()`       | FixedGainObserver (fixed gain), KalmanFilter (recursive), MHE, ESO |

@@ -40,7 +40,7 @@ static_assert([] {
 constexpr auto sys = StateSpace{.A = Matrix<2, 2>{{0.0, 1.0}, {9.81, -0.1}}, .B = Matrix<2, 1>{{0.0}, {1.0}}, .C = Matrix<1, 2>{{1.0, 0.0}}};
 
 constexpr auto       kLqr = design::state_feedback(sys, 0.01, {.Q = Matrix<2, 2>::identity() * 10.0, .R = 1.0});
-constexpr auto       kEso = design::eso<2>(40.0, 20.0, 1e-3);
+constexpr auto       kEso = design::eso<2>({.wo = 40.0, .b0 = 20.0}, 1e-3);
 constexpr auto       kPid = design::pid(design::Parallel{.Kp = 2.0, .Ki = 5.0, .Kd = 0.1}, 0.01);
 constexpr StateSpace noisy{.A = sys.A, .B = sys.B, .C = sys.C, .G = Matrix<2, 1>{{0.0}, {1.0}}, .H = Matrix<1, 1>{{1.0}}};
 constexpr auto       kLqg = design::state_feedback(noisy, 0.01, {.Q = Matrix<2, 2>::identity() * 10.0, .R = 1.0}, design::KalmanNoise<1, 1>{.process = 0.5, .measurement = 1e-4});

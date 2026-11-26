@@ -255,7 +255,7 @@ TEST_CASE("fused step(y, u) equals the manual predict/update sequence") {
     }
 
     SUBCASE("ESO") {
-        const auto ed = design::eso<2>(8.0, 1.0, Ts);
+        const auto ed = design::eso<2>({.wo = 8.0, .b0 = 1.0}, Ts);
         REQUIRE(ed.success);
         ESO<2, double> fused{ed};
         ESO<2, double> manual{ed};

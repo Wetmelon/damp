@@ -21,8 +21,8 @@ using namespace damp::examples_reaction_wheel;
 static constinit PIController          rate_pi = rate_pi_design.as<float>();
 static constinit PIController          angle_pi = angle_pi_design.as<float>();
 static constinit Law<adrc_res, float>  adrc;
-static constinit SMCController         smc{smc_res.as<float>()};
-static constinit STSMCController       stsmc{stsmc_res.as<float>()};
+static constinit Law<smc_res, float>   smc;
+static constinit Law<stsmc_res, float> stsmc;
 static constinit Law<place_res, float> place_ctrl;
 // Each design runs as the law named by its result, on its matrices as constants: LQR on the measured
 // state (design::state_feedback with Poles or weights), LQI with integrators, LQG with the Kalman estimator, LQGI with both,
@@ -46,8 +46,8 @@ int main() {
         rate_pi_design.gains.Ki
     );
     fmt::print("ADRC (NX=2):  wc={:.3g}  wo={:.3g}  b0={:.3g}\n", wc_adrc, wo_adrc, b_u);
-    fmt::print("SMC:  λ={:.3g}  k={:.3g}  b0={:.3g}\n", smc_res.lambda, smc_res.k, smc_res.b0);
-    fmt::print("STSMC:  k1={:.4g}  k2={:.4g}  λ={:.3g}\n", stsmc_res.k1, stsmc_res.k2, stsmc_res.lambda);
+    fmt::print("SMC:  λ={:.3g}  k={:.3g}  b0={:.3g}\n", smc_res.gains.lambda, smc_res.gains.k, smc_res.gains.b0);
+    fmt::print("STSMC:  k1={:.4g}  k2={:.4g}  λ={:.3g}\n", stsmc_res.gains.k1, stsmc_res.gains.k2, stsmc_res.gains.lambda);
 
     fmt::print(
         "place_sampled (s=[{:.3g},{:.3g}], Ts={:.3g}) K = [{:.4g}, {:.4g}]\n",
@@ -68,8 +68,9 @@ int main() {
     const float             omega0 = x0(1);
     const float             r0 = 0.0f;
 
-    // Every law's command goes through the actuator limit; the laws that track the applied input
-    // (ADRC's observer, the state-feedback integrators and estimators) are told what went out.
+    // Every law's command goes through the actuator limit (ADRC, SMC and STSMC hold it themselves,
+    // from their InputLimits); the laws that track the applied input (ADRC's observer, the
+    // state-feedback integrators and estimators) are told what went out.
     const auto clamp_u = [](float u) { return damp::clamp(u, -u_max, u_max); };
     const auto applied = [&](auto& law, const ColVec<NU, float>& u_req) {
         const float u = clamp_u(u_req(0));

@@ -76,15 +76,16 @@ inline constexpr float  w_cmd_max = 8.0f;
 inline constexpr auto rate_pi_design = design::pid(TransferFunction{.num = {1.0}, .den = {1.0 / b_u, 0.0}}, Ts, design::PolePlacement{.omega = w_rate}, design::InputLimits{.lower = {-static_cast<double>(u_max)}, .upper = {static_cast<double>(u_max)}});
 inline constexpr auto angle_pi_design = design::pid(TransferFunction{.num = {1.0}, .den = {1.0, 0.0}}, Ts, design::PolePlacement{.omega = w_angle}, design::InputLimits{.lower = {-static_cast<double>(w_cmd_max)}, .upper = {static_cast<double>(w_cmd_max)}});
 
-// Light-model SISO on θ
-inline constexpr double wc_adrc = 8.0;
-inline constexpr double wo_adrc = 40.0;
-inline constexpr auto   adrc_res = design::adrc<2>(wc_adrc, wo_adrc, b_u, Ts);
+// Light-model SISO on θ, each clamped to the motor's ±u_max
+inline constexpr design::InputLimits motor_limits{.lower = {-static_cast<double>(u_max)}, .upper = {static_cast<double>(u_max)}};
+inline constexpr double              wc_adrc = 8.0;
+inline constexpr double              wo_adrc = 40.0;
+inline constexpr auto                adrc_res = design::adrc<2>({.wc = wc_adrc, .wo = wo_adrc, .b0 = b_u}, Ts, motor_limits);
 static_assert(adrc_res.success);
 
 // Sliding Mode Controllers
-inline constexpr auto smc_res = design::smc(10.0, 8.0, b_u, Ts, 0.05); // λ, k, b0, Ts, boundary layer φ
-inline constexpr auto stsmc_res = design::stsmc(4.0, Ts, 10.0);
+inline constexpr auto smc_res = design::smc({.lambda = 10.0, .k = 8.0, .b0 = b_u, .phi = 0.05}, Ts, motor_limits); // λ, k, b₀, boundary layer φ
+inline constexpr auto stsmc_res = design::stsmc({.disturbance_bound = 4.0, .lambda = 10.0}, Ts, motor_limits);     // |ḋ| ≤ 4, surface slope λ
 
 // Full-state linear design: the same design call, placed at s-plane poles or weighted
 inline constexpr design::Poles place_poles_s{-8.0, -12.0};

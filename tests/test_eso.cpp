@@ -23,7 +23,7 @@ using namespace damp;
 
 namespace {
 
-constexpr auto                 kEso2 = design::eso<2>(50.0, 2.0, 1e-3);
+constexpr auto                 kEso2 = design::eso<2>({.wo = 50.0, .b0 = 2.0}, 1e-3);
 static constinit ESO<2, float> kObs2{kEso2};
 
 /// Coefficients of (z − λ)ⁿ, highest power first.
@@ -54,16 +54,17 @@ struct DoubleIntegrator {
 
 TEST_SUITE("Extended State Observer (ESO)") {
     TEST_CASE("1st-order binomial β") {
-        constexpr auto r = design::eso<1>(20.0, 1.0);
+        constexpr auto r = design::eso<1>({.wo = 20.0, .b0 = 1.0}, 1e-3);
         static_assert(r.success);
         CHECK(r.beta[0] == doctest::Approx(40.0).epsilon(1e-12));
         CHECK(r.beta[1] == doctest::Approx(400.0).epsilon(1e-12));
-        CHECK(r.Phi(0, 0) == 0.0);
-        CHECK(r.L[0] == 0.0);
+        //! Ts = 0 was the continuous design, its maps zero; it is refused now, and β is the same at any Ts.
+        CHECK(r.Phi(0, 0) == 1.0); // the ZOH map of the chain of integrators
+        CHECK(r.L[0] > 0.0);
     }
 
     TEST_CASE("2nd-order binomial β") {
-        constexpr auto r = design::eso<2>(20.0, 1.0);
+        constexpr auto r = design::eso<2>({.wo = 20.0, .b0 = 1.0}, 1e-3);
         static_assert(r.success);
         CHECK(r.beta[0] == doctest::Approx(60.0).epsilon(1e-12));
         CHECK(r.beta[1] == doctest::Approx(1200.0).epsilon(1e-12));
@@ -74,7 +75,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
         const double h = 1e-3, wo = 50.0, b0 = 2.0;
         const double l = damp::exp(-wo * h), m = 1.0 - l;
 
-        const auto r1 = design::eso<1>(wo, b0, h);
+        const auto r1 = design::eso<1>({.wo = wo, .b0 = b0}, h);
         REQUIRE(r1.success);
         CHECK(r1.Phi(0, 1) == doctest::Approx(h));
         CHECK(r1.Gamma[0] == doctest::Approx(b0 * h));
@@ -82,7 +83,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
         CHECK(r1.L[0] == doctest::Approx(1.0 - (l * l)));
         CHECK(r1.L[1] == doctest::Approx(m * m / h));
 
-        const auto r2 = design::eso<2>(wo, b0, h);
+        const auto r2 = design::eso<2>({.wo = wo, .b0 = b0}, h);
         REQUIRE(r2.success);
         CHECK(r2.Phi(0, 2) == doctest::Approx(0.5 * h * h));
         CHECK(r2.Phi(1, 2) == doctest::Approx(h));
@@ -96,12 +97,12 @@ TEST_SUITE("Extended State Observer (ESO)") {
 
     TEST_CASE("design::adrc copies the ESO matrices") {
         constexpr double wo = 50.0, b0 = 2.0, Ts = 1e-3;
-        const auto       a = design::adrc<2>(10.0, wo, b0, Ts);
-        const auto       e = design::eso<2>(wo, b0, Ts);
+        const auto       a = design::adrc<2>({.wc = 10.0, .wo = wo, .b0 = b0}, Ts);
+        const auto       e = design::eso<2>({.wo = wo, .b0 = b0}, Ts);
         REQUIRE(a.success);
         REQUIRE(e.success);
-        CHECK(a.wo == doctest::Approx(e.wo));
-        CHECK(a.b0 == doctest::Approx(e.b0));
+        CHECK(a.gains.wo == doctest::Approx(e.wo));
+        CHECK(a.gains.b0 == doctest::Approx(e.b0));
         CHECK(a.Ts == doctest::Approx(e.Ts));
         for (size_t i = 0; i < 3; ++i) {
             CHECK(a.beta[i] == doctest::Approx(e.beta[i]).epsilon(1e-15));
@@ -117,7 +118,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
     }
 
     TEST_CASE("ADRCController is ESO plus PD") {
-        const auto                res = design::adrc<2>(10.0, 50.0, 2.0, 1e-3);
+        const auto                res = design::adrc<2>({.wc = 10.0, .wo = 50.0, .b0 = 2.0}, 1e-3);
         ADRCController<2, double> law{res};
         ESO<2, double>            obs{res.as_eso()};
         const auto                L = res.as_eso().L;
@@ -126,13 +127,13 @@ TEST_SUITE("Extended State Observer (ESO)") {
         for (int k = 0; k < 400; ++k) {
             const double u_law = law.step(r, y);
             const auto&  z = obs.step(y);
-            const double u_obs = ((res.Kp * (r - z[0])) - (res.Kd * z[1]) - z[2]) / res.b0;
+            const double u_obs = ((res.Kp * (r - z[0])) - (res.Kd * z[1]) - z[2]) / res.gains.b0;
             obs.back_calculate(u_obs);
             // The same observer, instantiated twice, may round apart (GCC 15 -ffast-math, fused
             // multiply-adds). A rounding of y enters each estimate through its gain, so they agree to
             // ulps of |zᵢ| + Lᵢ·|y| (L₂ = 116 here), and u to its gains times those.
             const auto   scale = [&](size_t i) { return damp::abs(z[i]) + (L(i) * damp::abs(y)); };
-            const double u_scale = damp::abs(u_obs) + (((res.Kp * scale(0)) + (res.Kd * scale(1)) + scale(2)) / damp::abs(res.b0));
+            const double u_scale = damp::abs(u_obs) + (((res.Kp * scale(0)) + (res.Kd * scale(1)) + scale(2)) / damp::abs(res.gains.b0));
             CHECK(damp::abs(u_law - u_obs) <= 64.0 * eps<double>() * u_scale);
             CHECK(damp::abs(law.observer()[2] - obs.disturbance()) <= 64.0 * eps<double>() * scale(2));
             v += ((b * u_law) + d) * Ts;
@@ -144,7 +145,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
         const double h = 1e-3, b0 = 20.0, d = -3.5;
 
         SUBCASE("NX = 2") {
-            ESO<2, double>   obs{design::eso<2>(100.0, b0, h)};
+            ESO<2, double>   obs{design::eso<2>({.wo = 100.0, .b0 = b0}, h)};
             DoubleIntegrator p{.y = 0.2, .v = -0.1};
             double           u = 0.0;
             for (int k = 0; k < 6000; ++k) {
@@ -159,7 +160,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
         }
 
         SUBCASE("NX = 1") {
-            ESO<1, double> obs{design::eso<1>(100.0, b0, h)};
+            ESO<1, double> obs{design::eso<1>({.wo = 100.0, .b0 = b0}, h)};
             double         y = 0.2, u = 0.0;
             for (int k = 0; k < 6000; ++k) {
                 (void)obs.step(y, u);
@@ -174,7 +175,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
 
     TEST_CASE("a plant-gain error lands in f̂") {
         const double     h = 1e-3, b0 = 20.0, b = 26.0, d = -3.5, u = 0.5;
-        ESO<2, double>   obs{design::eso<2>(100.0, b0, h)};
+        ESO<2, double>   obs{design::eso<2>({.wo = 100.0, .b0 = b0}, h)};
         DoubleIntegrator p{};
         for (int k = 0; k < 6000; ++k) {
             (void)obs.step(p.y, u);
@@ -185,7 +186,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
 
     TEST_CASE("predict coasts through missed samples") {
         const double     h = 1e-3, a = 2.0;
-        ESO<2, double>   obs{design::eso<2>(100.0, 1.0, h)};
+        ESO<2, double>   obs{design::eso<2>({.wo = 100.0, .b0 = 1.0}, h)};
         DoubleIntegrator p{};
         for (int k = 0; k < 3000; ++k) {
             (void)obs.step(p.y, 0.0);
@@ -203,7 +204,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
     }
 
     TEST_CASE("update corrects without advancing time") {
-        ESO<2, double> obs{design::eso<2>(100.0, 1.0, 1e-3)};
+        ESO<2, double> obs{design::eso<2>({.wo = 100.0, .b0 = 1.0}, 1e-3)};
         obs.reset(ColVec{1.0, 5.0, 2.0});
         obs.update(ColVec{1.0}); // zero innovation: nothing to correct, and no time passes
         CHECK(obs.state()[0] == 1.0);
@@ -212,7 +213,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
     }
 
     TEST_CASE("the low-latency ISR order matches the fused step") {
-        const auto     res = design::eso<2>(100.0, 2.0, 1e-3);
+        const auto     res = design::eso<2>({.wo = 100.0, .b0 = 2.0}, 1e-3);
         ESO<2, double> fused{res};
         ESO<2, double> isr{res};
         double         y = 0.1, u = 0.0;
@@ -228,7 +229,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
     }
 
     TEST_CASE("first tick is L y when z and u are zero") {
-        const auto     res = design::eso<2>(40.0, 1.5, 1e-3);
+        const auto     res = design::eso<2>({.wo = 40.0, .b0 = 1.5}, 1e-3);
         ESO<2, double> obs{res};
         const double   y = 0.4;
         const auto&    z = obs.step(y, 0.0);
@@ -238,7 +239,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
     }
 
     TEST_CASE("back_calculate then step(y) matches step(y, u)") {
-        const auto     res = design::eso<1>(80.0, 1.0, 5e-4);
+        const auto     res = design::eso<1>({.wo = 80.0, .b0 = 1.0}, 5e-4);
         ESO<1, double> a{res};
         ESO<1, double> b{res};
         const double   y = 0.25, u = 0.1;
@@ -252,7 +253,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
     }
 
     TEST_CASE("predict then update equals fused step") {
-        const auto     res = design::eso<2>(40.0, 1.0, 1e-3);
+        const auto     res = design::eso<2>({.wo = 40.0, .b0 = 1.0}, 1e-3);
         ESO<2, double> fused{res};
         ESO<2, double> manual{res};
         for (int k = 0; k < 40; ++k) {
@@ -268,7 +269,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
     }
 
     TEST_CASE("float at a large |y|: the innovation form leaves no DC bias in the estimates") {
-        ESO<2, float> obs{design::eso<2>(40.0, 20.0, 1e-4)};
+        ESO<2, float> obs{design::eso<2>({.wo = 40.0, .b0 = 20.0}, 1e-4)};
         const float   y = 1000.0f;
         obs.reset(ColVec<3, float>{y, 0.0f, 0.0f});
         double    v_sum = 0.0, f_sum = 0.0;
@@ -288,7 +289,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
 
         SUBCASE("negative b0") {
             const double     b0 = -5.0, d = 1.5, u = 0.4;
-            ESO<2, double>   obs{design::eso<2>(100.0, b0, h)};
+            ESO<2, double>   obs{design::eso<2>({.wo = 100.0, .b0 = b0}, h)};
             DoubleIntegrator p{};
             for (int k = 0; k < 6000; ++k) {
                 (void)obs.step(p.y, u);
@@ -299,7 +300,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
 
         SUBCASE("b0 = 0 with no input differentiates y") {
             const double   slope = 3.0;
-            ESO<2, double> obs{design::eso<2>(100.0, 0.0, h)};
+            ESO<2, double> obs{design::eso<2>({.wo = 100.0, .b0 = 0.0}, h)};
             for (int k = 0; k < 6000; ++k) {
                 (void)obs.step(slope * h * k, 0.0);
             }
@@ -309,15 +310,15 @@ TEST_SUITE("Extended State Observer (ESO)") {
     }
 
     TEST_CASE("invalid knobs fail closed") {
-        CHECK(design::eso<1>(0.0, 1.0).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::eso<2>(-10.0, 1.0).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::eso<1>(10.0, std::numeric_limits<double>::infinity()).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::eso<1>(10.0, std::numeric_limits<double>::quiet_NaN()).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::eso<2>(10.0, 1.0, -1e-3).status == design::DesignStatus::invalid_sample_time);
-        CHECK(design::eso<1>(10.0, 1.0, std::numeric_limits<double>::quiet_NaN()).status == design::DesignStatus::invalid_sample_time);
-        CHECK_FALSE(design::eso<1>(std::numeric_limits<double>::infinity(), 1.0).success);
+        CHECK(design::eso<1>({.wo = 0.0, .b0 = 1.0}, 1e-3).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::eso<2>({.wo = -10.0, .b0 = 1.0}, 1e-3).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::eso<1>({.wo = 10.0, .b0 = std::numeric_limits<double>::infinity()}, 1e-3).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::eso<1>({.wo = 10.0, .b0 = std::numeric_limits<double>::quiet_NaN()}, 1e-3).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::eso<2>({.wo = 10.0, .b0 = 1.0}, -1e-3).status == design::DesignStatus::invalid_sample_time);
+        CHECK(design::eso<1>({.wo = 10.0, .b0 = 1.0}, std::numeric_limits<double>::quiet_NaN()).status == design::DesignStatus::invalid_sample_time);
+        CHECK_FALSE(design::eso<1>({.wo = std::numeric_limits<double>::infinity(), .b0 = 1.0}, 1e-3).success);
 
-        ESO<1, double> bad{design::eso<1>(0.0, 1.0, 1e-3)};
+        ESO<1, double> bad{design::eso<1>({.wo = 0.0, .b0 = 1.0}, 1e-3)};
         CHECK_FALSE(bad.valid());
         CHECK(bad.step(1.0, 1.0)[0] == 0.0);
         CHECK(bad.disturbance() == 0.0);
@@ -325,30 +326,32 @@ TEST_SUITE("Extended State Observer (ESO)") {
 
     TEST_CASE("gains that T cannot represent are refused, not reported as success") {
         const auto bad = design::DesignStatus::invalid_parameter;
-        CHECK(design::eso<2>(1e150, 1.0).status == bad);               // ω_o³ overflows
-        CHECK(design::eso<2, float>(1e13f, 1.0f).status == bad);       // ω_o³ overflows float
-        CHECK(design::eso<2>(1.0, 1.0, 1e-200).status == bad);         // λ = 1, h² underflows
-        CHECK(design::eso<2>(1e-20, 1.0, 1e-3).status == bad);         // λ = 1: L = 0 never corrects
-        CHECK(design::eso<2, float>(1.0f, 1.0f, 1e-9f).status == bad); // λ = 1 in float
-        CHECK(design::eso<2>(1e200, 1.0, 1e-200).status == bad);       // L₂ overflows through h²
-        CHECK(design::eso<1>(1e6, 1.0, 1.0).success);                  // deadbeat is fine
+        CHECK(design::eso<2>({.wo = 1e150, .b0 = 1.0}, 1e-3).status == bad);          // ω_o³ overflows
+        CHECK(design::eso<2, float>({.wo = 1e13f, .b0 = 1.0f}, 1e-3f).status == bad); // ω_o³ overflows float
+        CHECK(design::eso<2>({.wo = 1.0, .b0 = 1.0}, 1e-200).status == bad);          // λ = 1, h² underflows
+        CHECK(design::eso<2>({.wo = 1e-20, .b0 = 1.0}, 1e-3).status == bad);          // λ = 1: L = 0 never corrects
+        CHECK(design::eso<2, float>({.wo = 1.0f, .b0 = 1.0f}, 1e-9f).status == bad);  // λ = 1 in float
+        CHECK(design::eso<2>({.wo = 1e200, .b0 = 1.0}, 1e-200).status == bad);        // L₂ overflows through h²
+        CHECK(design::eso<1>({.wo = 1e6, .b0 = 1.0}, 1.0).success);                   // deadbeat is fine
     }
 
-    TEST_CASE("a continuous design (Ts = 0) leaves the runtime invalid") {
-        auto obs = ESO<2, double>(design::eso<2>(40.0, 1.0));
+    TEST_CASE("a Ts of 0, once the continuous design, is refused and leaves the runtime invalid") {
+        CHECK(design::eso<2>({.wo = 40.0, .b0 = 1.0}, 0.0).status == design::DesignStatus::invalid_sample_time);
+        CHECK(design::eso<1>({.wo = 40.0, .b0 = 1.0}, std::numeric_limits<double>::infinity()).status == design::DesignStatus::invalid_sample_time);
+        auto obs = ESO<2, double>(design::eso<2>({.wo = 40.0, .b0 = 1.0}, 0.0));
         CHECK_FALSE(obs.valid());
         CHECK(obs.step(1.0, 0.5)[0] == 0.0);
         CHECK(obs.output() == 0.0);
     }
 
     TEST_CASE("ESOResult::as and converting ctor") {
-        constexpr auto ok = design::eso<1>(20.0, 1.5, 1e-3);
+        constexpr auto ok = design::eso<1>({.wo = 20.0, .b0 = 1.5}, 1e-3);
         static_assert(ok.success);
         constexpr auto ok_f = ok.as<float>();
         static_assert(ok_f.success);
         CHECK(ok_f.wo == doctest::Approx(static_cast<float>(ok.wo)));
 
-        constexpr auto bad = design::eso<1>(-20.0, 1.0);
+        constexpr auto bad = design::eso<1>({.wo = -20.0, .b0 = 1.0}, 1e-3);
         static_assert(!bad.success);
         static_assert(!bad.as<float>().success);
 
@@ -371,7 +374,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
     }
 
     TEST_CASE("reset clears the observer state") {
-        const auto     res = design::eso<1>(40.0, 1.0, 1e-3);
+        const auto     res = design::eso<1>({.wo = 40.0, .b0 = 1.0}, 1e-3);
         ESO<1, double> obs{res};
         for (int k = 0; k < 50; ++k) {
             (void)obs.step(0.3, 0.1);
@@ -385,7 +388,7 @@ TEST_SUITE("Extended State Observer (ESO)") {
     }
 
     TEST_CASE("reset(z0) starts on the measurement with no transient") {
-        const auto     res = design::eso<2>(50.0, 1.0, 1e-3);
+        const auto     res = design::eso<2>({.wo = 50.0, .b0 = 1.0}, 1e-3);
         ESO<2, double> cold{res};
         ESO<2, double> warm{res};
         warm.reset(ColVec{1.0, 0.0, 0.0});
@@ -403,8 +406,8 @@ TEST_SUITE("Extended State Observer (ESO)") {
             const double Ts = 1e-3;
             const double lambda = damp::exp(-woTs);
             CAPTURE(woTs);
-            const auto r1 = design::eso<1>(woTs / Ts, 2.0, Ts);
-            const auto r2 = design::eso<2>(woTs / Ts, 2.0, Ts);
+            const auto r1 = design::eso<1>({.wo = woTs / Ts, .b0 = 2.0}, Ts);
+            const auto r2 = design::eso<2>({.wo = woTs / Ts, .b0 = 2.0}, Ts);
             const auto c1 = ::damp::detail::leverrier(r1.error_dynamics()).den;
             const auto c2 = ::damp::detail::leverrier(r2.error_dynamics()).den;
             const auto e1 = repeated_root_poly<2>(lambda);
@@ -416,9 +419,9 @@ TEST_SUITE("Extended State Observer (ESO)") {
                 CHECK(c2[i] == doctest::Approx(e2[i]).epsilon(1e-12).scale(1.0));
             }
         }
-        constexpr auto rc = design::eso<2>(10.0, 50.0, 0.0);
-        static_assert(rc.Phi(0, 0) == 0.0 && rc.L(0) == 0.0);
-        constexpr auto rd = design::eso<2>(10.0, 50.0, 1e-3);
+        constexpr auto rc = design::eso<2>({.wo = 10.0, .b0 = 50.0}, 0.0); // once the continuous design, its maps zero
+        static_assert(!rc.success && rc.status == design::DesignStatus::invalid_sample_time);
+        constexpr auto rd = design::eso<2>({.wo = 10.0, .b0 = 50.0}, 1e-3);
         static_assert(rd.L(0) > 0.0 && rd.L(0) < 1.0);
     }
 }

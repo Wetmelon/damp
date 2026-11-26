@@ -184,19 +184,17 @@ the repo root.
   `track(u, r, y)`, their integral preloaded so that `step(r, y)` returns u. A law
   with nothing to preload takes `design::Handover{.fade_time}`, which fades the
   first command's mismatch; `track` and a law without it cost `step` nothing.
-- **Limits:** a law's output limit is a `Bounds`, unbounded by default: an
-  `InputLimits` among an LQ or MPC design's options, `u_lim` in the design input
-  or on the result of the others, refused when it is not a box. The LQ laws and
-  the MPCs read their run-time limits with `limits()` and set them with
-  `set_limits(lim)`, which refuses one that is not a box (false, nothing
-  changed): `StateFeedbackLimits` and `MPCLimits`, which start with `input` (then
-  `input_rate`) and end with `disturbance`, and a design result holds the same
-  struct as `limits`. The PID laws do the same with `design::PIDLimits` (`input`,
-  `integral`, the latter on the I term in u's units), which `design::pid`'s
-  `InputLimits` and `AntiWindup` give them, and take new gains with `gains()` / `set_gains(g)`.
-  PR and lead-lag do too, `design::PRLimits` and `design::LeadLagLimits` (`input`), from an
-  `InputLimits` among their designs' options. The other
-  runtimes hold `u_lim` as a public member. The
+- **Limits:** a law's output limit is a `Bounds`, unbounded by default, given as an
+  `InputLimits` among its design's options and refused when it is not a box. Every
+  law, LQ, MPC, PID and the other SISO laws, reads its run-time limits with
+  `limits()` and sets them with `set_limits(lim)`, which refuses one that is not a
+  box (false, nothing changed). The struct starts with `input`, and a design result
+  holds the same one as `limits`: `StateFeedbackLimits` and `MPCLimits` (then
+  `input_rate`, …, `disturbance`), `design::PIDLimits` (`input`, `integral`, on the
+  I term in u's units, from `AntiWindup`), and one per SISO family. Laws with gains
+  a user retunes take them with `gains()` / `set_gains(g)`. `Cascade` and
+  `SmithPredictor` forward to the law they hold, and `SwitchedController` sets every
+  law's. The
   tick returns a command inside its limits, and with nothing else set the law's
   memory holds against that clamp (conditional integration, an observer or
   internal model on the clamped command). A clamp after the law is reported with

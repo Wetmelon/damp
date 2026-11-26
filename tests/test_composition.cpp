@@ -4,10 +4,15 @@
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
 
+#include <bit>
+#include <cstdint>
+
 #include "damp/backend.hpp"
 #include "damp/concepts.hpp"
 #include "damp/controllers/composition.hpp"
 #include "damp/controllers/pid.hpp"
+#include "damp/controllers/smc.hpp"
+#include "damp/controllers/stsmc.hpp"
 #include "damp/design/pid_design.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
@@ -37,6 +42,12 @@ struct GainController {
         ++resets;
     }
 };
+
+/** @brief A NaN that reaches the guard at run time, from bits through a volatile (tests/test_nan_guards.cpp). */
+double runtime_nan() {
+    volatile std::uint64_t bits = 0x7FF8000000000000ULL;
+    return std::bit_cast<double>(static_cast<std::uint64_t>(bits));
+}
 
 } // namespace
 
@@ -151,5 +162,103 @@ TEST_SUITE("Cascade and SwitchedController") {
         CHECK(sw.backup().last_command() == doctest::Approx(u).epsilon(1e-12));
         const double next = sw.step(2.5, 1.3);
         CHECK(damp::abs(next - u) < 0.2); // then the law's own: one tick of the integral, no jump
+    }
+
+    TEST_CASE("SwitchedController hands a super-twisting law over too, now that it has track") {
+        //! Only a PID had track(u, r, y): a super-twisting backup switched in started from v = 0.
+        const auto pi_gains = design::pid(design::Parallel{.Kp = 1.0, .Ki = 10.0}, 1e-3);
+        const auto st = design::stsmc({.disturbance_bound = 2.0, .lambda = 5.0}, 1e-3);
+        using PI = PIController<double>;
+        using ST = STSMCController<double>;
+        SwitchedController<PI, PI, ST, double> sw{PI{pi_gains}, PI{pi_gains}, ST{st}};
+        double                                 u = 0.0;
+        for (int k = 0; k < 50; ++k) {
+            u = sw.step(1.0, 0.0);
+        }
+        sw.set_mode(SwitchMode::Backup);
+        CHECK(sw.step(1.0, 0.2) == doctest::Approx(u).epsilon(1e-12));
+    }
+
+    TEST_CASE("SwitchedController track: the active law lands on u, and a law switched in next starts from it") {
+        const auto gains = design::pid(design::Parallel{.Kp = 2.0, .Ki = 10.0}, 0.01);
+        using PI = PIController<double>;
+        SwitchedController<PI, PI, PI, double> sw{PI{gains}, PI{gains}, PI{gains}};
+        for (int k = 0; k < 20; ++k) {
+            sw.track(3.0, 1.0, 0.4); // an operator drives the plant
+        }
+        CHECK(sw.last_command() == 3.0);
+        CHECK(sw.step(1.0, 0.4) == doctest::Approx(3.0).epsilon(1e-12));
+        sw.track(-1.5, 1.0, 0.4);
+        sw.set_mode(SwitchMode::Backup);
+        CHECK(sw.step(0.2, 0.9) == doctest::Approx(-1.5).epsilon(1e-12));
+    }
+
+    TEST_CASE("SwitchedController limits: the active law's command limits, set on every law; refused when not a box") {
+        const auto gains = design::pid(design::Parallel{.Kp = 2.0, .Ki = 10.0}, 0.01, design::AntiWindup{.limits = {.lower = -5.0, .upper = 5.0}});
+        using PI = PIController<double>;
+        SMCController<double>                                     smc{design::smc({.lambda = 10.0, .k = 50.0, .b0 = 1.0}, 0.01)};
+        SwitchedController<PI, PI, SMCController<double>, double> sw{PI{gains}, PI{gains}, smc};
+        CHECK(sw.valid());
+        auto lim = sw.limits();
+        lim.input = {.lower = -2.0, .upper = 2.0};
+        REQUIRE(sw.set_limits(lim));
+        CHECK(sw.normal().limits().input.upper(0) == 2.0);
+        CHECK(sw.experiment().limits().input.lower(0) == -2.0);
+        CHECK(sw.backup().limits().input.upper(0) == 2.0);
+        CHECK(sw.normal().limits().integral.upper(0) == 5.0); // each law's other limits are its own
+        CHECK(sw.step(10.0, 0.0) == 2.0);
+        sw.set_mode(SwitchMode::Backup);
+        CHECK(sw.step(10.0, 0.0) == 2.0); // the relay's 50, clamped
+        CHECK(sw.limits().input.upper(0) == 2.0);
+        for (const double bad : {runtime_nan(), 3.0}) {
+            auto l = sw.limits();
+            l.input.lower(0) = bad; // NaN, or above the upper end
+            CHECK_FALSE(sw.set_limits(l));
+            CHECK(sw.normal().limits().input.lower(0) == -2.0);
+            CHECK(sw.backup().limits().input.lower(0) == -2.0);
+        }
+        SwitchedController<PI, PI, PI, double> broken{PI{gains}, PI{design::PIDResult<double>{}}, PI{gains}};
+        CHECK_FALSE(broken.valid()); // a law it refuses in any slot
+    }
+
+    TEST_CASE("Cascade track: the inner reference follows the inner measurement, and the next step returns u") {
+        //! Cascade had no handover: an outer PI and an inner PI switched in from manual started
+        //! from their last integrals.
+        const auto outer_gains = design::pid(design::Parallel{.Kp = 1.0, .Ki = 2.0}, 0.01);
+        const auto inner_gains = design::pid(design::Parallel{.Kp = 3.0, .Ki = 20.0}, 0.01, design::InputLimits{.lower = {-4.0}, .upper = {4.0}});
+        using PI = PIController<double>;
+        Cascade<PI, PI, double> cas{PI{outer_gains}, PI{inner_gains}};
+        for (int k = 0; k < 30; ++k) {
+            (void)cas.step(1.0, 0.0, 0.0);
+        }
+        for (int k = 0; k < 30; ++k) {
+            cas.track(1.25, 2.0, 0.6, 0.3); // an operator holds the actuator at 1.25
+        }
+        CHECK(cas.last_command() == 1.25);
+        CHECK(cas.step(2.0, 0.6, 0.3) == doctest::Approx(1.25).epsilon(1e-12));
+        CHECK(cas.outer().last_command() == doctest::Approx(0.3).epsilon(1e-12)); // the inner reference started at the inner measurement
+        cas.track(9.0, 2.0, 0.6, 0.3);                                            // past the inner law's limit: lands on it
+        CHECK(cas.step(2.0, 0.6, 0.3) == doctest::Approx(4.0).epsilon(1e-12));
+    }
+
+    TEST_CASE("Cascade limits are the inner law's; valid() asks both laws") {
+        const auto outer_gains = design::pid(design::Parallel{.Kp = 1.0, .Ki = 2.0}, 0.01, design::InputLimits{.lower = {-8.0}, .upper = {8.0}});
+        const auto inner_gains = design::pid(design::Parallel{.Kp = 3.0}, 0.01, design::InputLimits{.lower = {-4.0}, .upper = {4.0}});
+        using PI = PIController<double>;
+        using P = PController<double>;
+        Cascade<PI, P, double> cas{PI{outer_gains}, P{inner_gains}};
+        CHECK(cas.valid());
+        CHECK(cas.limits().input.upper(0) == 4.0);
+        auto lim = cas.limits();
+        lim.input = {.lower = -1.0, .upper = 1.0};
+        REQUIRE(cas.set_limits(lim));
+        CHECK(cas.inner().limits().input.upper(0) == 1.0);
+        CHECK(cas.outer().limits().input.upper(0) == 8.0); // the outer law's are its own
+        CHECK(cas.step(5.0, 0.0, 0.0) == 1.0);
+        lim.input.upper(0) = runtime_nan();
+        CHECK_FALSE(cas.set_limits(lim));
+        CHECK(cas.limits().input.upper(0) == 1.0);
+        Cascade<PI, P, double> broken{PI{outer_gains}, P{design::PIDResult<double>{}}};
+        CHECK_FALSE(broken.valid());
     }
 }

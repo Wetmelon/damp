@@ -19,6 +19,7 @@
 #include "damp/controllers/pr.hpp"
 #include "damp/controllers/repetitive.hpp"
 #include "damp/controllers/smc.hpp"
+#include "damp/controllers/smith_predictor.hpp"
 #include "damp/controllers/state_feedback.hpp"
 #include "damp/controllers/stsmc.hpp"
 #include "damp/design/pid_design.hpp"
@@ -44,13 +45,14 @@ constexpr double kTs = 1e-3;
 
 // Double designs, deployed in float below with no .as<float>().
 constexpr auto kPid = design::pid(design::Parallel{.Kp = 2.0, .Ki = 5.0, .Kd = 0.1}, kTs);
-constexpr auto kAdrc = design::adrc<2>(10.0, 50.0, 1.0, kTs);
-constexpr auto kEso = design::eso<2>(50.0, 1.0, kTs);
-constexpr auto kSmc = design::smc(10.0, 8.0, 1.0, kTs);
-constexpr auto kStsmc = design::stsmc(4.0, kTs, 10.0);
+constexpr auto kAdrc = design::adrc<2>({.wc = 10.0, .wo = 50.0, .b0 = 1.0}, kTs);
+constexpr auto kEso = design::eso<2>({.wo = 50.0, .b0 = 1.0}, kTs);
+constexpr auto kSmc = design::smc({.lambda = 10.0, .k = 8.0, .b0 = 1.0}, kTs);
+constexpr auto kStsmc = design::stsmc({.disturbance_bound = 4.0, .lambda = 10.0}, kTs);
+constexpr auto kSmith = design::smith_predictor(design::FOPDT{.K = 1.0, .tau = 0.5}, kTs, InputDelay<8>{0.005});
 constexpr auto kPr = design::pr({.Kp = 0.0, .Ki = 10.0, .w0 = 2.0 * std::numbers::pi * 50.0, .wc = 6.0}, kTs);
 constexpr auto kLead = design::lead({.phase_max = 0.6, .wc = 20.0}, kTs);
-constexpr auto kEsc = design::esc({.dither_amplitude = 0.1, .dither_freq_hz = 50.0, .gain = 20.0}, kTs);
+constexpr auto kEsc = design::esc({.dither_amplitude = 0.1, .dither_omega = 2.0 * std::numbers::pi * 50.0, .gain = 20.0}, kTs);
 constexpr auto kRep = design::repetitive({.w0 = 2.0 * std::numbers::pi * 50.0}, kTs);
 constexpr auto kLowPass = design::lowpass<2>(50.0, kTs);
 constexpr auto kNotch = design::notch(50.0, 2.0, kTs);
@@ -71,6 +73,7 @@ static constinit ADRCController<2, float>           adrc = kAdrc;
 static constinit ESO<2, float>                      eso = kEso;
 static constinit SMCController<float>               smc = kSmc;
 static constinit STSMCController<float>             stsmc = kStsmc;
+static constinit SmithPredictor<8, float>           smith = kSmith;
 static constinit PRController<float>                pr = kPr;
 static constinit LeadLagController<float>           lead = kLead;
 static constinit ExtremumSeekingController<float>   esc = kEsc;
@@ -97,6 +100,7 @@ TEST_SUITE("assign from design") {
         (void)adrc;
         (void)smc;
         (void)stsmc;
+        CHECK(smith.valid());
         (void)pr;
         (void)lead;
         (void)esc;
@@ -109,6 +113,7 @@ TEST_SUITE("assign from design") {
         ESO                       es{kEso};
         SMCController             sd{kSmc};
         STSMCController           td{kStsmc};
+        SmithPredictor            sp{kSmith};
         PRController              prd{kPr};
         LeadLagController         ld{kLead};
         ExtremumSeekingController ed{kEsc};
@@ -121,6 +126,7 @@ TEST_SUITE("assign from design") {
         static_assert(std::is_same_v<decltype(es), ESO<2, double>>);
         static_assert(std::is_same_v<decltype(sd), SMCController<double>>);
         static_assert(std::is_same_v<decltype(td), STSMCController<double>>);
+        static_assert(std::is_same_v<decltype(sp), SmithPredictor<8, double>>);
         static_assert(std::is_same_v<decltype(prd), PRController<double>>);
         static_assert(std::is_same_v<decltype(ld), LeadLagController<double>>);
         static_assert(std::is_same_v<decltype(ed), ExtremumSeekingController<double>>);

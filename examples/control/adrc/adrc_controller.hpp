@@ -37,7 +37,7 @@ inline constexpr double wo = 40.0;      // [rad/s] ESO (5× wc)
 inline constexpr double b0 = 1.0 / J_nom;
 
 [[nodiscard]] constexpr auto make_adrc() {
-    return design::adrc<2>(wc, wo, b0, Ts);
+    return design::adrc<2>({.wc = wc, .wo = wo, .b0 = b0}, Ts, design::InputLimits{.lower = {-u_max}, .upper = {u_max}});
 }
 
 inline constexpr auto adrc_d = make_adrc();

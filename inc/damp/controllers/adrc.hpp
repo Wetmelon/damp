@@ -7,7 +7,8 @@
 
 /**
  * @file adrc.hpp
- * @brief Active Disturbance Rejection Control design and runtime
+ * @brief Active Disturbance Rejection Control: design::adrc<NX>(gains, Ts, opts...) → ADRCResult
+ *        → ADRCController
  *
  * Linear ADRC: an extended-state observer (ESO) estimates the plant output, its derivatives
  * and the total disturbance f on the model y⁽ⁿ⁾ = f + b₀u, and a PD law on the estimate cancels
@@ -19,6 +20,8 @@
 
 #include "damp/backend.hpp"
 #include "damp/controllers/law.hpp" // IWYU pragma: export
+#include "damp/design/detail/siso_input_limits.hpp"
+#include "damp/design/input_limits.hpp" // IWYU pragma: export
 #include "damp/design/status.hpp"
 #include "damp/estimation/eso.hpp"
 #include "damp/math/math.hpp"
@@ -34,13 +37,54 @@ namespace damp {
 namespace design {
 
 /**
+ * @struct ADRCGains
+ * @brief The tuning of a linear ADRC law: the controller bandwidth ω_c, the observer bandwidth
+ *        ω_o and the plant's gain b₀
+ *
+ * design::adrc's input, `design::adrc<2>({.wc = 10.0, .wo = 50.0, .b0 = 1.0}, Ts)`, the result's
+ * gains, and what ADRCController::gains and set_gains read and take.
+ *
+ * @tparam T Scalar type (deduced from wc when the type is named)
+ */
+template<typename T = double>
+struct ADRCGains {
+    T                        wc{}; ///< [rad/s] Controller bandwidth ω_c (> 0)
+    damp::type_identity_t<T> wo{}; ///< [rad/s] Observer bandwidth ω_o (> 0), as design::eso's
+    damp::type_identity_t<T> b0{}; ///< Plant gain b₀ in y⁽ⁿ⁾ = f + b₀u (> 0)
+
+    /** @brief The same gains in another scalar. */
+    template<typename U>
+    [[nodiscard]] constexpr ADRCGains<U> as() const {
+        return ADRCGains<U>{static_cast<U>(wc), static_cast<U>(wo), static_cast<U>(b0)};
+    }
+};
+
+/**
+ * @struct ADRCLimits
+ * @brief The limits of an ADRC law: on its command
+ *
+ * Unbounded by default. design::adrc sets them from an InputLimits among its options, and the law
+ * reads and changes them at run time with ADRCController::limits and set_limits.
+ */
+template<typename T = double>
+struct ADRCLimits {
+    Bounds<1, T> input{}; ///< The command u [lower, upper]: the ESO runs on the clamped command
+
+    /** @brief The same limits in another scalar. */
+    template<typename U>
+    [[nodiscard]] constexpr ADRCLimits<U> as() const {
+        return ADRCLimits<U>{input.template as<U>()};
+    }
+};
+
+/**
  * @struct ADRCResult
  * @brief Active Disturbance Rejection Control design result
  *
- * Contains the computed observer and controller gains for ADRC: the continuous ESO gains β
- * (for analysis, to_ss / to_tf) and, for Ts > 0, the discrete ESO the runtime ticks,
- * z̄_k = Φ ẑ_{k−1} + Γ u_{k−1}, ẑ_k = z̄_k + L (y_k − z̄_k,₀).
- * Use .as\<U\>() to convert for type conversion (e.g., double to float).
+ * The gains, the observer and controller gains they give, and the discrete ESO the runtime
+ * ticks, z̄_k = Φ ẑ_{k−1} + Γ u_{k−1}, ẑ_k = z̄_k + L (y_k − z̄_k,₀). The continuous ESO gains β
+ * are for analysis (to_ss, to_tf). Use .as\<U\>() to convert for type conversion (e.g., double
+ * to float).
  *
  * @see "From PID to Active Disturbance Rejection Control" (Han, 1998)
  * @see "Discrete implementation and generalization of the extended state observer"
@@ -50,51 +94,48 @@ template<size_t NX, typename T = double>
 struct [[nodiscard]] ADRCResult {
     static_assert(NX == 1 || NX == 2, "ADRC supports 1st- and 2nd-order plants only");
 
-    T wc{}; ///< Controller bandwidth
-    T wo{}; ///< FixedGainObserver bandwidth
-    T b0{}; ///< Plant gain
+    ADRCGains<T> gains{}; ///< ω_c, ω_o, b₀
 
-    ColVec<NX + 1, T> beta{}; ///< ESO gains
+    ColVec<NX + 1, T> beta{}; ///< Continuous ESO gains (poles at −ω_o)
 
     T Kp{}; ///< Unscaled proportional gain (wc or wc²); tick divides by b0
     T Kd{}; ///< Unscaled derivative gain (0 or 2·wc); tick divides by b0
 
-    Matrix<NX + 1, NX + 1, T> Phi{};   ///< ZOH state map Φ of the ESO (zero when Ts = 0)
+    Matrix<NX + 1, NX + 1, T> Phi{};   ///< ZOH state map Φ of the ESO
     ColVec<NX + 1, T>         Gamma{}; ///< ZOH input map Γ on u_{k−1}
     ColVec<NX + 1, T>         L{};     ///< Current-estimator gain on the innovation y_k − z̄_k,₀
 
-    bool         success{false};                      ///< status == DesignStatus::ok
-    DesignStatus status{DesignStatus::not_converged}; ///< ok, or why the design failed
-    T            Ts{0};                               ///< [s] Sample time of the law: 0 continuous (analysis), > 0 the runtime's tick
-    Bounds<1, T> u_lim{};                             ///< Limits on the command (default unbounded): set here, or on the runtime
+    ADRCLimits<T> limits{};                            ///< The limits the law starts with
+    T             Ts{0};                               ///< [s] Sample period of the tick
+    bool          success{false};                      ///< status == DesignStatus::ok
+    DesignStatus  status{DesignStatus::not_converged}; ///< ok, or why the design failed
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
+    /** @brief The same design in another scalar. */
     template<typename U>
-    [[nodiscard]] constexpr auto as() const {
+    [[nodiscard]] constexpr ADRCResult<NX, U> as() const {
         return ADRCResult<NX, U>{
-            static_cast<U>(wc),
-            static_cast<U>(wo),
-            static_cast<U>(b0),
-            beta.template as<U>(),
-            static_cast<U>(Kp),
-            static_cast<U>(Kd),
-            Phi.template as<U>(),
-            ColVec<NX + 1, U>(Gamma.template as<U>()),
-            ColVec<NX + 1, U>(L.template as<U>()),
-            success,
-            status,
-            static_cast<U>(Ts),
-            u_lim.template as<U>(),
+            .gains = gains.template as<U>(),
+            .beta = beta.template as<U>(),
+            .Kp = static_cast<U>(Kp),
+            .Kd = static_cast<U>(Kd),
+            .Phi = Phi.template as<U>(),
+            .Gamma = ColVec<NX + 1, U>(Gamma.template as<U>()),
+            .L = ColVec<NX + 1, U>(L.template as<U>()),
+            .limits = limits.template as<U>(),
+            .Ts = static_cast<U>(Ts),
+            .success = success,
+            .status = status,
         };
     }
 
     /** @brief The observer this law ticks: @ref design::eso of the same ω_o, b₀ and T_s. */
     [[nodiscard]] constexpr ESOResult<NX, T> as_eso() const {
         return {
-            .wo = wo,
-            .b0 = b0,
+            .wo = gains.wo,
+            .b0 = gains.b0,
             .beta = beta,
             .Phi = Phi,
             .Gamma = Gamma,
@@ -113,6 +154,7 @@ struct [[nodiscard]] ADRCResult {
      */
     [[nodiscard]] constexpr StateSpace<NX + 1, 2, 1, T> to_ss_2dof() const {
         StateSpace<NX + 1, 2, 1, T> sys{};
+        const T                     b0 = gains.b0;
         if (!success || !damp::finite_positive(b0)) {
             return sys;
         }
@@ -174,9 +216,9 @@ struct [[nodiscard]] ADRCResult {
 };
 
 /**
- * @brief Active Disturbance Rejection Control design
+ * @brief Active Disturbance Rejection Control design, deployed at @p Ts
  *
- * The observer is @ref design::eso (poles at −ω_o, plant gain b₀, the discrete ESO at Ts > 0).
+ * The observer is @ref design::eso (poles at −ω_o, plant gain b₀, the discrete ESO at Ts).
  * Controller gains are unscaled (b0 is applied only in the runtime law u = (u0 − f̂)/b0):
  * - 1st order: Kp = wc, Kd = 0
  * - 2nd order: Kp = wc², Kd = 2·wc
@@ -185,16 +227,20 @@ struct [[nodiscard]] ADRCResult {
  * linear ADRC toolboxes / MATLAB® discrete ADRC). Higher-order ADRC is out of
  * scope.
  *
- * Ts = 0 is the continuous design, for analysis (to_ss, to_tf); Φ, Γ and L stay zero.
+ * @code
+ * constexpr auto kAdrc = design::adrc<2>({.wc = 10.0, .wo = 50.0, .b0 = 1.0}, 1e-3,
+ *                                       design::InputLimits{.lower = {-2.5}, .upper = {2.5}});
+ * static constinit Law<kAdrc, float> adrc; // each tick: u = adrc.step(r, y);
+ * @endcode
  *
- * Requires wc > 0, wo > 0, b0 > 0 (all finite), else refused with invalid_parameter and
- * zero gains so the runtime cannot divide by an invalid b0; a negative or non-finite Ts
- * is refused with invalid_sample_time.
+ * Refused with invalid_sample_time for a Ts that is not finite and positive, and with
+ * invalid_parameter for ω_c, ω_o or b₀ not finite and positive or an InputLimits that is not a box
+ * (with zero gains, so the runtime cannot divide by an invalid b0), and as design::eso refuses its
+ * observer. An option other than one InputLimits on one input does not compile.
  *
- * @param wc Controller bandwidth
- * @param wo Observer bandwidth (same as @ref design::eso)
- * @param b0 Plant gain
- * @param Ts [s] Sample time of the runtime (0 = continuous)
+ * @param gains ω_c, ω_o and b₀
+ * @param Ts    [s] Sample period of the runtime (> 0)
+ * @param opts  InputLimits{.lower = {lo}, .upper = {hi}}
  *
  * @return ADRCResult with computed gains
  *
@@ -203,34 +249,37 @@ struct [[nodiscard]] ADRCResult {
  * @see "Discrete implementation and generalization of the extended state observer"
  *      (Miklosovic, Radke & Gao, 2006), ACC: the current discrete ESO and its gains
  */
-template<size_t NX, typename T = double>
-[[nodiscard]] constexpr ADRCResult<NX, T> adrc(T wc, T wo, T b0, T Ts = T{0}) {
+template<size_t NX, typename T, typename... Opts>
+[[nodiscard]] constexpr ADRCResult<NX, T> adrc(const ADRCGains<T>& gains, T Ts, const Opts&... opts) {
     static_assert(NX == 1 || NX == 2, "ADRC supports 1st- and 2nd-order plants only");
-
-    const bool ok = damp::isfinite(wc) && damp::isfinite(wo) && damp::isfinite(b0) && (wc > T{0})
-                 && (wo > T{0}) && (b0 > T{0});
+    detail::check_siso_input_limits<Opts...>();
+    const ADRCLimits<T> limits{detail::siso_input_limits_of<T>(opts...)};
+    if (!damp::finite_positive(Ts)) {
+        return detail::refused<ADRCResult<NX, T>>(DesignStatus::invalid_sample_time);
+    }
+    const T    wc = gains.wc;
+    const bool ok = damp::finite_positive(wc) && damp::finite_positive(gains.wo) && damp::finite_positive(gains.b0) && limits.input.valid();
     if (!ok) {
         return detail::refused<ADRCResult<NX, T>>(DesignStatus::invalid_parameter);
     }
 
-    const auto e = eso<NX>(wo, b0, Ts);
+    const auto e = eso<NX>(ESOGains<T>{.wo = gains.wo, .b0 = gains.b0}, Ts);
     if (!e.success) {
         return detail::refused<ADRCResult<NX, T>>(e.status);
     }
 
     return ADRCResult<NX, T>{
-        .wc = wc,
-        .wo = e.wo,
-        .b0 = e.b0,
+        .gains = gains,
         .beta = e.beta,
         .Kp = (NX == 1) ? wc : (wc * wc),
         .Kd = (NX == 1) ? T{0} : (T{2} * wc),
         .Phi = e.Phi,
         .Gamma = e.Gamma,
         .L = e.L,
+        .limits = limits,
+        .Ts = e.Ts,
         .success = true,
         .status = DesignStatus::ok,
-        .Ts = e.Ts,
     };
 }
 
@@ -245,14 +294,32 @@ template<size_t NX, typename T = double>
  * Based on the work of Jingqing Han and Zhiqiang Gao. The observer is @ref ESO
  * (design::eso): one mat-vec per tick; this runtime adds the PD law that cancels f̂.
  *
+ * | Member | What it is |
+ * | --- | --- |
+ * | step(r, y) | one tick at the design's T_s: the ESO, then the PD law on its estimate |
+ * | track(u, r, y) | in place of step while another source drives the plant: the ESO runs on the input applied |
+ * | back_calculate(u_sat, u_ff) | a clamp after the law: the ESO's next tick takes the input applied |
+ * | gains(), set_gains(g) | ω_c, ω_o, b₀ in force (design::ADRCGains); change them at run time |
+ * | limits(), set_limits(lim) | the command's limits (design::ADRCLimits); change them at run time |
+ * | observer(), applied(), last_command(), sample_time(), valid(), reset() | the ESO state; the input it takes as applied; the last command; T_s; whether the design ran; clear the ESO |
+ *
+ * While another source drives the plant, track(u, r, y) takes the place of step(r, y): the ESO
+ * ticks on y with the input applied over the last period, then holds u as applied over the next,
+ * so its estimate follows the plant under the other source. Nothing is preloaded: f̂ stays the
+ * estimate of the total disturbance. The first step after it returns the law's own command on
+ * that current estimate, sat((K_p(r − ẑ₁) − K_d ẑ₂ − f̂)/b₀), with no kick from a stale one; it
+ * is u when the plant rests at r under u (f̂ = −b₀u there).
+ *
  * References:
  * - Han, J. (1998). From PID to Active Disturbance Rejection Control. IEEE Transactions on Industrial Electronics, 45(5), 900-906.
  * - Gao, Z. (2006). Active Disturbance Rejection Control: A Paradigm Shift in Feedback Control System Design. American Control Conference.
  *
  * @see "Discrete implementation and generalization of the extended state observer"
  *      (Miklosovic, Radke & Gao, 2006), ACC
- * @tparam NX Plant order: 1 (1st-order) or 2 (2nd-order) only
- * @tparam T Scalar type (default: float)
+ * @tparam NX       Plant order: 1 (1st-order) or 2 (2nd-order) only
+ * @tparam T        Scalar type (default: float)
+ * @tparam EsoStore Where the ESO's maps live: members (detail::HeldEso), or the constants of a
+ *                  `constexpr` design's Law (detail::ConstantEso)
  */
 template<size_t NX, typename T = float, typename EsoStore = detail::HeldEso<NX, T>>
 class ADRCController {
@@ -261,67 +328,60 @@ class ADRCController {
     template<size_t, typename, typename>
     friend class ADRCController; // cross-precision converting ctor
 
-    T                    b0{1.0f}; ///< input gain
-    T                    Kp{1.0f}; ///< proportional gain
-    T                    Kd{1.0f}; ///< derivative gain
-    ESO<NX, T, EsoStore> eso_{};   ///< Discrete ESO (Miklosovic–Radke–Gao current estimator)
-    T                    u_cmd_{}; ///< The command the last step() returned
-
-    /** @brief The observer of a design, refused with the design when its u_lim is not a box. */
-    [[nodiscard]] static constexpr design::ESOResult<NX, T> observer_of(const design::ADRCResult<NX, T>& result) {
-        if (result.u_lim.valid()) {
-            return result.as_eso();
+    /** @brief The runtime's observer of @p result: on its matrices, or the type's constants. */
+    [[nodiscard]] static constexpr ESO<NX, T, EsoStore> observer_of(const design::ADRCResult<NX, T>& result) {
+        if constexpr (EsoStore::constant) {
+            static_cast<void>(result);
+            return ESO<NX, T, EsoStore>{};
+        } else {
+            return ESO<NX, T, EsoStore>{result.as_eso()};
         }
-        if (damp::is_constant_evaluated()) {
-            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // a limit that is not finite, or lower above upper
-        }
-        return ::damp::detail::refused<design::ESOResult<NX, T>>(design::DesignStatus::invalid_parameter);
     }
 
 public:
-    Bounds<1, T> u_lim{}; ///< Limits on the command (the result's; default unbounded): the ESO moves on the clamped command
-
     constexpr ADRCController() = default;
-
-    /** @brief The gains, its ESO's maps being constants of the type (Law of a `constexpr` design). */
-    constexpr ADRCController(T b0_, T Kp_, T Kd_)
-        requires(EsoStore::constant)
-        : b0(b0_), Kp(Kp_), Kd(Kd_) {}
 
     /** @brief From a design result in another scalar: converts it with .as\<T\>() and builds from that. */
     template<typename U>
-        requires(!damp::is_same_v<U, T> && !EsoStore::constant)
+        requires(!damp::is_same_v<U, T>)
     constexpr ADRCController(const design::ADRCResult<NX, U>& result) // NOLINT(google-explicit-constructor): assign-from-design
         : ADRCController(result.template as<T>()) {}
 
     /**
-     * @brief From the design result, which carries the sample time.
+     * @brief From the design result, which carries the gains, the limits and the sample time.
      *
-     * A failed or continuous (Ts = 0) design, or one whose u_lim is not a box, is ill-formed
-     * under constant evaluation; at run time it leaves the controller invalid (valid() false,
-     * output 0).
+     * A failed design, one whose Ts is not finite and positive or whose limit is not a box is
+     * ill-formed under constant evaluation; at run time it leaves the controller invalid
+     * (valid() false, output 0).
      */
     constexpr ADRCController(const design::ADRCResult<NX, T>& result) // NOLINT(google-explicit-constructor): assign-from-design
-        requires(!EsoStore::constant)
-        : b0(result.b0),
-          Kp(result.Kp),
-          Kd(result.Kd),
+        : g_(result.gains),
+          Kp_(result.Kp),
+          Kd_(result.Kd),
+          Ts_(result.Ts),
+          u_lim_(result.limits.input),
           eso_(observer_of(result)),
-          u_lim(result.u_lim.valid() ? result.u_lim : Bounds<1, T>{}) {
-        if ((!result.success || !(result.Ts > T{0})) && damp::is_constant_evaluated()) {
-            detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
+          valid_(result.success && damp::finite_positive(result.Ts) && damp::finite_positive(result.gains.b0) && result.limits.input.valid()) {
+        if ((!result.success || !damp::finite_positive(result.Ts)) && damp::is_constant_evaluated()) {
+            detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
+        }
+        if (!valid_ && damp::is_constant_evaluated()) {
+            detail::refuse_failed_design(design::DesignStatus::invalid_parameter); // b₀ not finite and positive, or a limit that is not a box
         }
     }
 
+    /** @brief The same law, with its live state, in another scalar. */
     template<typename U>
         requires(!EsoStore::constant)
-    constexpr ADRCController(const ADRCController<NX, U>& other)
-        : b0(static_cast<T>(other.b0)),
-          Kp(static_cast<T>(other.Kp)),
-          Kd(static_cast<T>(other.Kd)),
+    constexpr explicit ADRCController(const ADRCController<NX, U>& other)
+        : g_(other.g_.template as<T>()),
+          Kp_(static_cast<T>(other.Kp_)),
+          Kd_(static_cast<T>(other.Kd_)),
+          Ts_(static_cast<T>(other.Ts_)),
+          u_lim_(other.u_lim_.template as<T>()),
           eso_(other.eso_),
           u_cmd_(static_cast<T>(other.u_cmd_)),
-          u_lim(other.u_lim.template as<T>()) {}
+          valid_(other.valid_) {}
 
     /**
      * @brief Reference-tracking control step (Gao's linear ADRC).
@@ -337,13 +397,13 @@ public:
      * bandwidths `wc`/`wo` (see @ref design::adrc); there is no separate
      * integrator gain.
      *
-     * The command is clamped into u_lim, and the ESO takes that clamped command as the input
-     * applied, so its disturbance estimate does not absorb what the limit cut off. If a stage
-     * after this law clamps further, follow up with `back_calculate(u_sat)` so the next ESO
+     * The command is clamped into limits().input, and the ESO takes that clamped command as the
+     * input applied, so its disturbance estimate does not absorb what the limit cut off. If a
+     * stage after this law clamps further, follow up with `back_calculate(u_sat)` so the next ESO
      * tick uses what was actually applied.
      *
-     * Failed or continuous designs (success = false, b0 ≤ 0 or Ts = 0) emit zero and hold the
-     * ESO state, so the control law never divides by an invalid b0 or runs without the observer.
+     * A refused design emits zero and holds the ESO state, so the control law never divides by an
+     * invalid b0 or runs without the observer.
      *
      * @param r  Reference (setpoint).
      * @param y  Measurement (plant output).
@@ -357,12 +417,30 @@ public:
         const auto& z = eso_.step(y); // current estimator on the last applied command
 
         // --- Control law: PD on the estimated state, minus the disturbance.
-        const T u0 = (Kp * (r - z[0])) - (Kd * z[1]);  // Kd == 0 for NX == 1
-        const T u = u_lim.saturate((u0 - z[NX]) / b0); // cancel f̂ = z_{NX+1}
+        const T u0 = (Kp_ * (r - z[0])) - (Kd_ * z[1]);    // Kd == 0 for NX == 1
+        const T u = u_lim_.saturate((u0 - z[NX]) / g_.b0); // cancel f̂ = z_{NX+1}
 
         eso_.back_calculate(u);
         u_cmd_ = u;
         return u;
+    }
+
+    /**
+     * @brief In place of step(@p r, @p y) while another source drives the plant, @p u the input applied
+     *
+     * The ESO ticks on @p y with the input applied over the last period, then takes @p u as the
+     * input applied over the next, so its estimate stays current. Nothing is preloaded: the first
+     * step after it returns the law's own command on that estimate (see the class).
+     * @p u is recorded as the command applied.
+     */
+    constexpr void track(T u, T r, T y) {
+        if (!valid()) {
+            return;
+        }
+        static_cast<void>(r);
+        static_cast<void>(eso_.step(y));
+        eso_.back_calculate(u);
+        u_cmd_ = u;
     }
 
     /**
@@ -383,17 +461,65 @@ public:
      */
     constexpr void back_calculate(T u_sat, [[maybe_unused]] T u_ff = T{0}) { eso_.back_calculate(u_sat, u_ff); }
 
-    /** @brief A successful discrete (Ts > 0) design with b0 > 0; gates step(). */
-    [[nodiscard]] constexpr bool valid() const { return eso_.valid() && damp::finite_positive(b0); }
+    /** @brief A successful design with b0 > 0 and a limit that is a box; gates step(). */
+    [[nodiscard]] constexpr bool valid() const { return valid_ && eso_.valid(); }
 
     /** @brief ESO state [ŷ, (ŷ̇,) f̂] — plot these when commissioning. */
     [[nodiscard]] constexpr const ColVec<NX + 1, T>& observer() const { return eso_.state(); }
 
-    /** @brief The command the last step() returned, as on the other laws. */
+    /** @brief The command the last step() returned, or the input the last track() recorded. */
     [[nodiscard]] constexpr T last_command() const { return u_cmd_; }
 
     /** @brief The input the next ESO tick takes as applied: the last command, or what back_calculate recorded since. */
     [[nodiscard]] constexpr T applied() const { return eso_.last_command(); }
+
+    /** @brief The gains in force: the design's, or the last set_gains. */
+    [[nodiscard]] constexpr design::ADRCGains<T> gains() const { return g_; }
+
+    /**
+     * @brief Change the gains at run time; the next tick uses them
+     *
+     * Recomputes the PD gains and the ESO's maps at sample_time() (design::adrc), and keeps the
+     * estimate: a new b₀ moves f̂ by −Δb₀·u, u the input the ESO holds as applied, so the estimate
+     * of y⁽ⁿ⁾ = f + b₀u and the next command at the same estimate do not jump. Refused (false,
+     * nothing changed) for ω_c, ω_o or b₀ not finite and positive, or an observer design::eso
+     * refuses at sample_time(). A `constexpr` design's Law, whose ESO maps are the type's, has no
+     * set_gains.
+     */
+    [[nodiscard]] constexpr bool set_gains(const design::ADRCGains<T>& g)
+        requires(!EsoStore::constant)
+    {
+        const auto res = design::adrc<NX>(g, Ts_);
+        if (!res.success) {
+            return false;
+        }
+        const T u = eso_.last_command();
+        auto    z = eso_.state();
+        z[NX] = z[NX] - ((res.gains.b0 - g_.b0) * u); // f = y⁽ⁿ⁾ − b₀u: the same y⁽ⁿ⁾ under the new b₀
+        ESO<NX, T, EsoStore> retuned{res.as_eso()};
+        retuned.reset(z);
+        retuned.back_calculate(u);
+        eso_ = retuned;
+        g_ = res.gains;
+        Kp_ = res.Kp;
+        Kd_ = res.Kd;
+        return true;
+    }
+
+    /** @brief The limits in force: the design's, or the last set_limits. */
+    [[nodiscard]] constexpr design::ADRCLimits<T> limits() const { return {u_lim_}; }
+
+    /** @brief Change the limits at run time; the next tick clamps into them. Refused (false, nothing changed) when an end is NaN or ±Inf, or the lower end is above the upper one. */
+    [[nodiscard]] constexpr bool set_limits(const design::ADRCLimits<T>& lim) {
+        if (!lim.input.valid()) {
+            return false;
+        }
+        u_lim_ = lim.input;
+        return true;
+    }
+
+    /** @brief [s] The tick's sample period T_s. */
+    [[nodiscard]] constexpr T sample_time() const { return Ts_; }
 
     /** @brief Zero the ESO state and the held input. */
     constexpr void reset() {
@@ -406,6 +532,16 @@ public:
         eso_.reset(z0);
         u_cmd_ = T{0};
     }
+
+private:
+    design::ADRCGains<T> g_{};          ///< ω_c, ω_o, b₀ (the tick divides by b₀)
+    T                    Kp_{T{0}};     ///< Proportional gain
+    T                    Kd_{T{0}};     ///< Derivative gain
+    T                    Ts_{T{0}};     ///< [s] The tick's period, which set_gains designs at
+    Bounds<1, T>         u_lim_{};      ///< The command's limits
+    ESO<NX, T, EsoStore> eso_{};        ///< Discrete ESO (Miklosovic–Radke–Gao current estimator)
+    T                    u_cmd_{};      ///< The command the last step() returned, or the input track() recorded
+    bool                 valid_{false}; ///< Built from a design it runs
 };
 
 /** @brief Deduce the runtime from its design, keeping the result's scalar. */
@@ -443,18 +579,21 @@ struct Law<Res, T> : detail::adrc_runtime<Res, T>::type {
     using Runtime::operator=;
 };
 
-/** @brief Law<kRes, T> of a `constexpr` design::adrc: the same law, its ESO on the design's matrices as constants of the type. */
+/**
+ * @brief Law<kRes, T> of a `constexpr` design::adrc: the same law, its ESO on the design's
+ *        matrices as constants of the type, its gains and limits members (no set_gains: the
+ *        ESO's maps are the type's)
+ */
+// ponytail: the PD gains and b₀ could be constants of the type too, as a PID Law's gains are; they stay members beside the ESO's constant maps.
 template<const auto& Res, typename T>
     requires(detail::adrc_design<Res, T> && detail::constant_design<Res>)
 struct Law<Res, T> : detail::adrc_runtime<Res, T>::on_constants {
     using Runtime = detail::adrc_runtime<Res, T>::type; ///< The runtime with members: the type of a member a redesign assigns
 
     static_assert(detail::constant_design_runs(Res.success, Res.status, Res.Ts));
-    static_assert(Res.u_lim.valid(), "The design's u_lim is not a box: an end is not finite, or the lower one is above the upper one.");
+    static_assert(Res.limits.input.valid(), "The design's limits are not a box: an end is not finite, or the lower one is above the upper one.");
 
-    /** @brief The design's law: its ESO's maps are the type's, its limits a member. */
-    constexpr Law() : detail::adrc_runtime<Res, T>::on_constants(static_cast<T>(Res.b0), static_cast<T>(Res.Kp), static_cast<T>(Res.Kd)) {
-        this->u_lim = Res.u_lim.template as<T>();
-    }
+    /** @brief The design's law: its ESO's maps are the type's, its gains and limits members. */
+    constexpr Law() : detail::adrc_runtime<Res, T>::on_constants(Res.template as<T>()) {}
 };
 } // namespace damp

@@ -467,7 +467,7 @@ TEST_SUITE("Law of a constexpr design") {
 
 TEST_SUITE("The other runtimes on a constexpr design") {
     TEST_CASE("ESO: the same estimate, and a chain of integrators' zeros and ones cost nothing") {
-        static constexpr auto kEso = design::eso<2>(50.0, 2.0, 0.001);
+        static constexpr auto kEso = design::eso<2>({.wo = 50.0, .b0 = 2.0}, 0.001);
         REQUIRE(kEso.success);
         static_assert(sizeof(Law<kEso, float>) < sizeof(Law<kEso, float>::Runtime));
         using Store = detail::ConstantEso<kEso, double>;
@@ -487,7 +487,7 @@ TEST_SUITE("The other runtimes on a constexpr design") {
     }
 
     TEST_CASE("ADRC: the same commands, its ESO on constants") {
-        static constexpr auto kAdrc = design::adrc<2>(10.0, 50.0, 2.0, 0.001);
+        static constexpr auto kAdrc = design::adrc<2>({.wc = 10.0, .wo = 50.0, .b0 = 2.0}, 0.001);
         REQUIRE(kAdrc.success);
         static_assert(sizeof(Law<kAdrc, float>) < sizeof(Law<kAdrc, float>::Runtime));
         Law<kAdrc, double>::Runtime held{kAdrc};
@@ -563,11 +563,11 @@ TEST_SUITE("The other runtimes on a constexpr design") {
     }
 
     TEST_CASE("a design initialized at start-up keeps members and can be replaced, on these too") {
-        static const auto kEsoAtInit = design::eso<1>(50.0, 2.0, 0.001);
+        static const auto kEsoAtInit = design::eso<1>({.wo = 50.0, .b0 = 2.0}, 0.001);
         static_assert(!detail::constant_design<kEsoAtInit>);
         Law<kEsoAtInit, float> law;
         CHECK(law.valid());
-        law = ESO{design::eso<1>(80.0, 2.0, 0.001).as<float>()};
+        law = ESO{design::eso<1>({.wo = 80.0, .b0 = 2.0}, 0.001).as<float>()};
         CHECK(law.valid());
     }
 }
