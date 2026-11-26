@@ -19,7 +19,7 @@
  * update corrects it with the measurement; step does both.
  *
  * @code
- * constexpr auto res = design::eso<2>(40.0, 20.0, 1e-3); // ω_o, b₀, T_s
+ * constexpr auto res = design::eso<2>({.wo = 40.0, .b0 = 20.0}, 1e-3); // ω_o, b₀, then T_s
  * static constinit ESO obs{res.as<float>()};
  * // ISR: z = [ŷ, ẏ, f̂]
  * const auto z = obs.step(y, u_applied);
@@ -41,7 +41,22 @@ namespace damp {
 namespace design {
 
 /**
- * @brief Extended-state observer design: continuous β and, for Ts > 0, the discrete ESO
+ * @struct ESOGains
+ * @brief The tuning of an extended-state observer: its bandwidth ω_o and the plant's gain b₀
+ *
+ * design::eso's input, `design::eso<2>({.wo = 40.0, .b0 = 20.0}, Ts)`, and the observer half of
+ * design::adrc's (ADRCGains).
+ *
+ * @tparam T Scalar type (deduced from wo when the type is named)
+ */
+template<typename T = double>
+struct ESOGains {
+    T                        wo{}; ///< [rad/s] Observer bandwidth: every pole at −ω_o (> 0)
+    damp::type_identity_t<T> b0{}; ///< Plant high-frequency gain, y⁽ⁿ⁾ = f + b₀u (finite; < 0 for a reverse-acting plant)
+};
+
+/**
+ * @brief Extended-state observer design: continuous β and the discrete ESO at T_s
  *
  * z̄_k = Φ ẑ_{k−1} + Γ u_{k−1}, ẑ_k = z̄_k + L (y_k − z̄_k,₀). Use .as\<U\>() to convert (e.g.
  * double to float).
@@ -58,18 +73,18 @@ struct [[nodiscard]] ESOResult {
 
     ColVec<NX + 1, T> beta{}; ///< Continuous ESO gains (poles at −ω_o)
 
-    Matrix<NX + 1, NX + 1, T> Phi{};   ///< ZOH state map Φ of the chain of integrators (zero when Ts = 0)
+    Matrix<NX + 1, NX + 1, T> Phi{};   ///< ZOH state map Φ of the chain of integrators
     ColVec<NX + 1, T>         Gamma{}; ///< ZOH input map Γ on u_{k−1}
     ColVec<NX + 1, T>         L{};     ///< Current-estimator gain on the innovation y_k − z̄_k,₀
 
     bool         success{false};                      ///< status == DesignStatus::ok
     DesignStatus status{DesignStatus::not_converged}; ///< ok, or why the design failed
-    T            Ts{0};                               ///< [s] Sample time of the runtime: 0 continuous (analysis), > 0 the tick
+    T            Ts{0};                               ///< [s] Sample time of the tick
 
     /** @brief True when the design succeeded (success). */
     [[nodiscard]] constexpr explicit operator bool() const { return success; }
 
-    /** @brief Estimation-error dynamics (I − L C)Φ; eigenvalues e^{−ω_o T_s} (zero when Ts = 0). */
+    /** @brief Estimation-error dynamics (I − L C)Φ; eigenvalues e^{−ω_o T_s}. */
     [[nodiscard]] constexpr Matrix<NX + 1, NX + 1, T> error_dynamics() const {
         Matrix<NX + 1, NX + 1, T> E{};
         for (size_t i = 0; i <= NX; ++i) {
@@ -160,13 +175,13 @@ constexpr void discrete_eso(ESOResult<NX, T>& r) {
 } // namespace detail
 
 /**
- * @brief Extended-state observer: poles at −ω_o, plant gain b₀, optional sample time
+ * @brief Extended-state observer: poles at −ω_o, plant gain b₀, deployed at @p Ts
  *
- * Estimates [ŷ, (ẏ,) f̂] for y⁽ⁿ⁾ = f + b₀ u. All observer poles at −ω_o (binomial β).
- * Only plant orders NX = 1 and NX = 2 (ESO dimension NX+1), same as linear ADRC.
+ * Estimates [ŷ, (ẏ,) f̂] for y⁽ⁿ⁾ = f + b₀ u. All observer poles at −ω_o (binomial β, the
+ * continuous design's gains, for analysis). Only plant orders NX = 1 and NX = 2 (ESO dimension
+ * NX+1), same as linear ADRC.
  *
- * For Ts > 0 the design also builds the discrete ESO the runtime ticks (Miklosovic, Radke &
- * Gao, 2006). The ESO's linear dynamics @f$\dot z = A z + B u + \beta (y - C z)@f$, with
+ * The design builds the discrete ESO the runtime ticks (Miklosovic, Radke & Gao, 2006). The ESO's linear dynamics @f$\dot z = A z + B u + \beta (y - C z)@f$, with
  * @f$A@f$ the chain of integrators, are discretized by ZOH (@ref discretize), exact for this
  * model, to @f$(\Phi, \Gamma)@f$. The current estimator
  * @f[
@@ -185,34 +200,34 @@ constexpr void discrete_eso(ESOResult<NX, T>& r) {
  * @f$|y|@f$ does not cancel inside the disturbance estimate. Unlike a forward-Euler step of
  * the continuous ESO, whose poles 1 − ω_o T_s leave the unit circle for ω_o T_s > 2, these
  * poles stay at e^{−ω_o T_s} for any ω_o T_s.
- * Ts = 0 is the continuous design, for analysis; Φ, Γ and L stay zero.
  *
  * Requires wo > 0 and a finite b0, else refused with invalid_parameter. The observer never
  * divides by b0: a negative b0 is a reverse-acting plant, and b0 = 0 with u = 0 is a plain
  * differentiator of y. Also refused with invalid_parameter: an ω_o T_s below eps of T (the
- * observer would never correct) and gains that do not fit in T. A negative or non-finite
- * Ts is refused with invalid_sample_time.
+ * observer would never correct) and gains that do not fit in T. A Ts that is not finite and
+ * positive is refused with invalid_sample_time.
  *
- * @param wo Observer bandwidth [rad/s]
- * @param b0 Plant high-frequency gain
- * @param Ts [s] Sample time of the runtime (0 = continuous)
+ * @param gains The observer bandwidth ω_o [rad/s] and the plant high-frequency gain b₀
+ * @param Ts    [s] Sample time of the runtime (> 0)
  *
- * @return ESOResult with β and, for Ts > 0, Φ, Γ, L
+ * @return ESOResult with β, Φ, Γ and L
  *
  * @see "From PID to Active Disturbance Rejection Control" (Han, 1998)
  * @see "Discrete implementation and generalization of the extended state observer"
  *      (Miklosovic, Radke & Gao, 2006), ACC: the current discrete ESO and its gains
  * @see design::adrc — this observer plus a PD law that cancels f̂
  */
-template<size_t NX, typename T = double>
-[[nodiscard]] constexpr ESOResult<NX, T> eso(T wo, T b0, T Ts = T{0}) {
+template<size_t NX, typename T>
+[[nodiscard]] constexpr ESOResult<NX, T> eso(const ESOGains<T>& gains, T Ts) {
     static_assert(NX == 1 || NX == 2, "ESO supports 1st- and 2nd-order plants only");
 
-    const bool ok = damp::isfinite(wo) && damp::isfinite(b0) && (wo > T{0});
+    const T    wo = gains.wo;
+    const T    b0 = gains.b0;
+    const bool ok = damp::finite_positive(wo) && damp::isfinite(b0);
     if (!ok) {
         return detail::refused<ESOResult<NX, T>>(DesignStatus::invalid_parameter);
     }
-    if (!(Ts >= T{0}) || !damp::isfinite(Ts)) {
+    if (!damp::finite_positive(Ts)) {
         return detail::refused<ESOResult<NX, T>>(DesignStatus::invalid_sample_time);
     }
 
@@ -239,11 +254,9 @@ template<size_t NX, typename T = double>
         .status = DesignStatus::ok,
         .Ts = Ts,
     };
-    if (Ts > T{0}) {
-        detail::discrete_eso(out);
-        if (!out.success) {
-            return detail::refused<ESOResult<NX, T>>(out.status);
-        }
+    detail::discrete_eso(out);
+    if (!out.success) {
+        return detail::refused<ESOResult<NX, T>>(out.status);
     }
     return out;
 }
@@ -333,8 +346,8 @@ public:
     /**
      * @brief From the design result, which carries the sample time.
      *
-     * A failed or continuous (Ts = 0) design is ill-formed under constant evaluation; at run
-     * time it leaves the observer invalid (valid() false, state held).
+     * A failed design, or one whose Ts is not finite and positive, is ill-formed under constant
+     * evaluation; at run time it leaves the observer invalid (valid() false, state held).
      */
     constexpr ESO(const design::ESOResult<NX, T>& result) // NOLINT(google-explicit-constructor): assign-from-design
         requires(!Store::constant)
@@ -342,8 +355,8 @@ public:
           Gamma_(result.Gamma),
           L_(result.L),
           valid_(result.success && damp::finite_positive(result.Ts)) {
-        if ((!result.success || !(result.Ts > T{0})) && damp::is_constant_evaluated()) {
-            detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed or continuous design does not compile
+        if ((!result.success || !damp::finite_positive(result.Ts)) && damp::is_constant_evaluated()) {
+            detail::refuse_failed_design(result.success ? design::DesignStatus::invalid_sample_time : result.status); // constant-evaluated (constinit / constexpr): a failed design does not compile
         }
     }
 

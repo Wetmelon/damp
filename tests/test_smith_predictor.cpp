@@ -6,7 +6,7 @@
 /**
  * @file test_smith_predictor.cpp
  * @brief Smith predictor: design, L=0 equivalence to PID, dead-time closed loop,
- *        custom SisoController primary
+ *        a fraction of a sample of delay, custom SisoLaw primary, handover
  */
 
 #include <cmath>
@@ -20,7 +20,10 @@
 #include "damp/design/pid_design.hpp"
 #include "damp/design/status.hpp"
 #include "damp/filters/delay.hpp"
+#include "damp/systems/discretization.hpp"
+#include "damp/systems/state_space.hpp"
 #include "damp/systems/transfer_function.hpp"
+#include "damp/toolbox/bounds.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"
@@ -71,17 +74,41 @@ struct FopdtPlant {
     }
 };
 
-/// Minimal custom primary to prove Primary is not PID-only
+/// Minimal custom primary to prove Primary is not PID-only: a proportional law on the SISO contract
 struct ProportionalPrimary {
-    double k{1.0};
+    /// Its limits: the command's
+    struct Limits {
+        Bounds<1, double> input{};
+    };
+
+    double            k{1.0};
+    Bounds<1, double> lim{};
+    double            u_cmd{0.0};
 
     [[nodiscard]] constexpr double step(double r, double y) {
-        return k * (r - y);
+        u_cmd = lim.saturate(k * (r - y));
+        return u_cmd;
     }
 
     constexpr void back_calculate(double /*u_sat*/, double /*u_ff*/ = 0.0) {}
 
-    constexpr void reset() {}
+    constexpr void track(double u, double /*r*/, double /*y*/) { u_cmd = u; }
+
+    [[nodiscard]] constexpr Limits limits() const { return {lim}; }
+
+    [[nodiscard]] constexpr bool set_limits(const Limits& l) {
+        if (!l.input.valid()) {
+            return false;
+        }
+        lim = l.input;
+        return true;
+    }
+
+    [[nodiscard]] constexpr double last_command() const { return u_cmd; }
+
+    [[nodiscard]] constexpr bool valid() const { return true; }
+
+    constexpr void reset() { u_cmd = 0.0; }
 };
 
 /// The Smith predictor as it stood before its model ran on the delayed command: the delay-free FO
@@ -109,10 +136,12 @@ struct LegacySmith {
 /// with its own copy of the FOPDT plant (K, τ, L at Ts), reference steps at 0 and N/2.
 template<size_t MaxD, typename Primary>
 double max_command_gap(const Primary& c, double K, double tau, double L, double Ts, size_t N) {
+    const auto res = design::smith_predictor(design::FOPDT{.K = K, .tau = tau}, Ts, InputDelay<MaxD>{L});
+    REQUIRE(res.success);
     const double                          a = std::exp(-Ts / tau);
     const double                          b = K * (1.0 - a);
     const auto                            d = static_cast<size_t>((L / Ts) + 0.5);
-    SmithPredictor<MaxD, double, Primary> rebuilt(c, a, b, d);
+    SmithPredictor<MaxD, double, Primary> rebuilt(c, res);
     LegacySmith<MaxD + 1, Primary>        legacy(c, a, b, d);
     FopdtPlant<MaxD + 1>                  plant_new{};
     FopdtPlant<MaxD + 1>                  plant_old{};
@@ -132,29 +161,33 @@ double max_command_gap(const Primary& c, double K, double tau, double L, double 
     return gap;
 }
 
-static_assert(SisoController<ProportionalPrimary, double>);
-static_assert(SisoController<SmithPredictor<8, double>, double>);
-static_assert(SisoController<SmithPredictor<8, float, PIController<float>>, float>);
+static_assert(SisoLaw<ProportionalPrimary, double>);
+static_assert(SisoLaw<SmithPredictor<8, double>, double>);
+static_assert(SisoLaw<SmithPredictor<8, float, PIController<float>>, float>);
+static_assert(SisoLaw<SmithPredictor<8, double, ProportionalPrimary>, double>);
 
 } // namespace
 
 TEST_SUITE("Smith Predictor") {
 
-    TEST_CASE("design::smith_predictor_from_fopdt packs FO model and delay") {
+    TEST_CASE("design::smith_predictor packs the FO model, the delay and a PI on the delay-free plant") {
         constexpr double K = 1.0;
         constexpr double tau = 5.0;
         constexpr double L = 2.0;
         constexpr double Ts = 0.1;
         constexpr double tau_c = 2.0;
 
-        constexpr auto sp = design::smith_predictor_from_fopdt(K, tau, L, Ts, tau_c);
+        constexpr auto sp = design::smith_predictor(design::FOPDT{.K = K, .tau = tau}, Ts, InputDelay<20>{L}, design::SIMC{.tau_c = tau_c});
         static_assert(sp.success);
-        static_assert(sp.delay_samples == 20); // round(2.0/0.1)
+        static_assert(sp.delay_samples == 20); // 2.0/0.1
+        static_assert(sp.b_stale == 0.0);      // whole samples
 
         const double a_ref = std::exp(-Ts / tau);
         const double b_ref = K * (1.0 - a_ref);
         CHECK(sp.a == doctest::Approx(a_ref).epsilon(1e-12));
         CHECK(sp.b == doctest::Approx(b_ref).epsilon(1e-12));
+        CHECK(sp.b_fresh == sp.b);
+        CHECK(sp.delay == L);
         CHECK(sp.pid.Ts == doctest::Approx(Ts));
         CHECK(sp.pid.gains.Kp > 0.0);
         CHECK(sp.pid.gains.Ki > 0.0); // PI from SIMC
@@ -165,42 +198,54 @@ TEST_SUITE("Smith Predictor") {
         CHECK(sp.pid.gains.Kp == doctest::Approx(cont.Kp));
         CHECK(sp.pid.gains.Ki == doctest::Approx(cont.Ki));
         CHECK(sp.pid.gains.Kp == doctest::Approx(tau / (K * tau_c)));
+
+        // Without a rule: SIMC's PI with τ_c = τ, as the old τ_c ≤ 0 default.
+        constexpr auto by_default = design::smith_predictor(design::FOPDT{.K = K, .tau = tau}, Ts, InputDelay<20>{L});
+        CHECK(by_default.pid.gains.Kp == doctest::Approx(tau / (K * tau)));
     }
 
-    TEST_CASE("design rejects non-physical FOPDT") {
-        CHECK_FALSE(design::smith_predictor_from_fopdt(0.0, 5.0, 1.0, 0.1).success);
-        CHECK_FALSE(design::smith_predictor_from_fopdt(1.0, 0.0, 1.0, 0.1).success);
-        CHECK_FALSE(design::smith_predictor_from_fopdt(1.0, 5.0, 1.0, 0.0).success);
-        CHECK_FALSE(design::smith_predictor_from_fopdt(1.0, 5.0, -1.0, 0.1).success);
+    TEST_CASE("the design refuses a non-physical plant, a dead time in the model, and a delay past N·Ts") {
+        CHECK_FALSE(design::smith_predictor(design::FOPDT{.K = 0.0, .tau = 5.0}, 0.1, InputDelay<16>{1.0}).success);
+        CHECK_FALSE(design::smith_predictor(design::FOPDT{.K = 1.0, .tau = 0.0}, 0.1, InputDelay<16>{1.0}).success);
+        CHECK(design::smith_predictor(design::FOPDT{.K = 1.0, .tau = 5.0}, 0.0, InputDelay<16>{1.0}).status == design::DesignStatus::invalid_sample_time);
+        CHECK(design::smith_predictor(design::FOPDT{.K = 1.0, .tau = 5.0}, 0.1, InputDelay<16>{-1.0}).status == design::DesignStatus::invalid_parameter);
+        //! The dead time is the InputDelay's: an FOPDT that carries one too is refused, not added.
+        CHECK(design::smith_predictor(design::FOPDT{.K = 1.0, .L = 1.0, .tau = 5.0}, 0.1, InputDelay<16>{1.0}).status == design::DesignStatus::invalid_parameter);
+        //! N delay states hold N·Ts: θ = 0.8 fits N = 8 at 0.1 s, θ = 0.9 does not.
+        CHECK(design::smith_predictor(design::FOPDT{.K = 1.0, .tau = 1.0}, 0.1, InputDelay<8>{0.8}, design::SIMC{.tau_c = 1.0}).success);
+        CHECK(design::smith_predictor(design::FOPDT{.K = 1.0, .tau = 1.0}, 0.1, InputDelay<8>{0.9}, design::SIMC{.tau_c = 1.0}).status == design::DesignStatus::invalid_parameter);
     }
 
-    TEST_CASE("as<float> preserves success and delay samples") {
-        constexpr auto sp = design::smith_predictor_from_fopdt(1.0, 3.0, 1.5, 0.05, 1.0);
+    TEST_CASE("as<float> preserves success, the delay and N") {
+        constexpr auto sp = design::smith_predictor(design::FOPDT{.K = 1.0, .tau = 3.0}, 0.05, InputDelay<32>{1.5}, design::SIMC{.tau_c = 1.0});
         static_assert(sp.success);
         constexpr auto spf = sp.as<float>();
         static_assert(spf.success);
         static_assert(spf.delay_samples == sp.delay_samples);
+        static_assert(std::is_same_v<decltype(spf), const design::SmithPredictorResult<float, 32>>);
         CHECK(static_cast<double>(spf.a) == doctest::Approx(sp.a).epsilon(1e-6));
     }
 
-    TEST_CASE("smith_predictor_from_pid packs a PID design at its Ts") {
-        constexpr auto pid = design::pid(design::Parallel{.Kp = 2.0, .Ki = 0.4}, 0.1);
-        constexpr auto sp = design::smith_predictor_from_pid(pid, 1.0, 4.0, 1.0);
+    TEST_CASE("gains you have as the primary: Parallel, with the PID's options") {
+        constexpr auto sp = design::smith_predictor(design::FOPDT{.K = 1.0, .tau = 4.0}, 0.1, InputDelay<10>{1.0}, design::Parallel{.Kp = 2.0, .Ki = 0.4}, design::InputLimits{.lower = {-1.0}, .upper = {1.0}});
         static_assert(sp.success);
         CHECK(sp.pid.gains.Kp == doctest::Approx(2.0));
         CHECK(sp.pid.gains.Ki == doctest::Approx(0.4)); // continuous, at sp.pid.Ts = 0.1
         CHECK(sp.pid.Ts == doctest::Approx(0.1));
+        CHECK(sp.pid.limits.input.upper(0) == 1.0);
         CHECK(sp.delay_samples == 10);
+        SmithPredictor smith{sp};
+        CHECK(smith.limits().input.upper(0) == 1.0); // the primary's limits are the predictor's
+        CHECK(smith.step(10.0, 0.0) == 1.0);
     }
 
     TEST_CASE("L=0 Smith predictor matches bare PI on FO plant") {
         constexpr double K = 1.0;
         constexpr double tau = 2.0;
-        constexpr double L = 0.0;
         constexpr double Ts = 0.05;
         constexpr double tau_c = 1.0;
 
-        constexpr auto sp = design::smith_predictor_from_fopdt(K, tau, L, Ts, tau_c);
+        constexpr auto sp = design::smith_predictor(design::FOPDT{.K = K, .tau = tau}, Ts, InputDelay<8>{0.0}, design::SIMC{.tau_c = tau_c});
         static_assert(sp.success);
         static_assert(sp.delay_samples == 0);
 
@@ -238,12 +283,13 @@ TEST_SUITE("Smith Predictor") {
         constexpr double Ts = 0.05;
         constexpr double tau_c = 0.5; // aggressive on the FO plant alone
 
-        constexpr auto sp = design::smith_predictor_from_fopdt(K, tau, L, Ts, tau_c);
+        constexpr auto sp = design::smith_predictor(design::FOPDT{.K = K, .tau = tau}, Ts, InputDelay<128>{L}, design::SIMC{.tau_c = tau_c});
         REQUIRE(sp.success);
         REQUIRE(sp.delay_samples == 60);
 
-        SmithPredictor<128, double> smith(sp);
-        PIController<double>        bare(sp.pid);
+        SmithPredictor       smith(sp);
+        PIController<double> bare(sp.pid);
+        static_assert(std::is_same_v<decltype(smith), SmithPredictor<128, double>>);
 
         FopdtPlant<128> plant_s{};
         FopdtPlant<128> plant_b{};
@@ -287,8 +333,37 @@ TEST_SUITE("Smith Predictor") {
         CHECK(peak_abs_e_b > 0.2);
     }
 
+    TEST_CASE("a delay of a fraction of a sample: the model is the plant's, exactly") {
+        //! The delay was rounded to whole samples, L/Ts = 2.5 to 3 here, and the model's ŷ_d
+        //! disagreed with the plant's output by the half sample, in every transient.
+        constexpr double K = 2.0;
+        constexpr double tau = 0.4;
+        constexpr double Ts = 0.1;
+        constexpr double theta = 0.25; // 2.5 samples
+        constexpr auto   sp = design::smith_predictor(design::FOPDT{.K = K, .tau = tau}, Ts, InputDelay<4>{theta}, design::SIMC{.tau_c = 0.3});
+        REQUIRE(sp.success);
+        CHECK(sp.delay_samples == 2);
+        CHECK(sp.b_stale > 0.0);
+        CHECK(sp.b_fresh + sp.b_stale == doctest::Approx(sp.b).epsilon(1e-15));
+
+        // The plant: K/(τs + 1) with the delay, as discretize samples it.
+        const StateSpace<1, 1, 1> plant{.A = {{-1.0 / tau}}, .B = {{K / tau}}, .C = {{1.0}}};
+        const auto                delayed = discretize(plant, Ts, InputDelay<4>{theta});
+        REQUIRE(delayed.success);
+        SmithPredictor<4, double> smith{sp};
+        ColVec<5, double>         x{};
+        double                    worst = 0.0;
+        for (int k = 0; k < 200; ++k) {
+            const double y = (delayed->C * x)(0, 0);
+            worst = std::max(worst, std::abs(y - smith.delayed_model_output()));
+            const double u = smith.step((k < 100) ? 1.0 : -0.5, y);
+            x = (delayed->A * x) + (delayed->B * ColVec<1, double>{u});
+        }
+        CHECK(worst < 1e-12); // ŷ_d is the plant's output: y − ŷ_d = 0
+    }
+
     TEST_CASE("reset clears model and delay so next step is cold-start") {
-        constexpr auto             sp = design::smith_predictor_from_fopdt(1.0, 2.0, 0.5, 0.1, 1.0);
+        constexpr auto             sp = design::smith_predictor(design::FOPDT{.K = 1.0, .tau = 2.0}, 0.1, InputDelay<16>{0.5}, design::SIMC{.tau_c = 1.0});
         SmithPredictor<16, double> ctrl(sp);
         REQUIRE(ctrl.valid());
 
@@ -303,37 +378,29 @@ TEST_SUITE("Smith Predictor") {
 
         ctrl.reset();
         CHECK(ctrl.model_output() == doctest::Approx(0.0));
+        CHECK(ctrl.last_command() == 0.0);
         // First post-reset command with y=0,r=0 should be ~0 (no integral yet)
         CHECK(ctrl.step(0.0, 0.0) == doctest::Approx(0.0));
     }
 
-    TEST_CASE("invalid design or MaxDelay overflow yields zero control") {
-        SmithPredictor<8, double> bad(design::smith_predictor_from_fopdt(0.0, 1.0, 0.0, 0.1));
+    TEST_CASE("an invalid design yields zero control; a design of fewer delay states fits a larger runtime") {
+        SmithPredictor<8, double> bad(design::smith_predictor(design::FOPDT{.K = 0.0, .tau = 1.0}, 0.1, InputDelay<8>{0.0}));
         CHECK_FALSE(bad.valid());
         CHECK(bad.step(1.0, 0.0) == doctest::Approx(0.0));
 
-        // delay_samples = 50 > MaxDelay=8
-        constexpr auto long_delay = design::smith_predictor_from_fopdt(1.0, 1.0, 5.0, 0.1, 1.0);
-        static_assert(long_delay.delay_samples == 50);
-        SmithPredictor<8, double> too_short(long_delay);
-        CHECK_FALSE(too_short.valid());
-        CHECK(too_short.step(1.0, 0.0) == doctest::Approx(0.0));
-
-        // MaxDelay is a capacity in whole samples: d = MaxDelay fits, d = MaxDelay + 1 does not.
-        constexpr auto d_eq = design::smith_predictor_from_fopdt(1.0, 1.0, 0.8, 0.1, 1.0);
-        static_assert(d_eq.delay_samples == 8);
-        SmithPredictor<8, double> edge(d_eq);
-        CHECK(edge.valid());
-        constexpr auto d_over = design::smith_predictor_from_fopdt(1.0, 1.0, 0.9, 0.1, 1.0);
-        static_assert(d_over.delay_samples == 9);
-        SmithPredictor<8, double> over(d_over);
-        CHECK_FALSE(over.valid());
+        constexpr auto             d_eq = design::smith_predictor(design::FOPDT{.K = 1.0, .tau = 1.0}, 0.1, InputDelay<8>{0.8}, design::SIMC{.tau_c = 1.0});
+        SmithPredictor<16, double> roomy(d_eq); // N = 8 into 16
+        SmithPredictor             exact(d_eq);
+        CHECK(roomy.valid());
+        for (int k = 0; k < 50; ++k) {
+            CHECK(roomy.step(1.0, 0.0) == exact.step(1.0, 0.0));
+        }
     }
 
-    TEST_CASE("the law on its ring of commands in flight reproduces the Delay-line law's commands") {
-        // The same plants as the cases above. ŷ is now the delayed model carried over the d
-        // commands in flight instead of a stored delay-free model, so the two agree to the
-        // rounding of d multiply-adds on commands of order 1–10: 1e-12 absolute.
+    TEST_CASE("the law on its two models reproduces the Delay-line law's commands") {
+        // The same plants as the cases above. ŷ_d is now the model run on the delayed command,
+        // which is the delay-free model delayed for whole samples: the two agree to the rounding
+        // of the multiply-adds on commands of order 1–10, 1e-12 absolute.
         const auto pi = [](double K, double tau, double tau_c, double Ts) {
             return PIController<double>(design::pid(design::FOPDT{.K = K, .L = 0.0, .tau = tau}, Ts, design::SIMC{.tau_c = tau_c}));
         };
@@ -347,21 +414,22 @@ TEST_SUITE("Smith Predictor") {
         CHECK(gap_p < 1e-12);
     }
 
-    TEST_CASE("custom SisoController primary (not PID-family)") {
+    TEST_CASE("custom SisoLaw primary (not PID-family)") {
         constexpr double K = 1.0;
         constexpr double tau = 2.0;
         constexpr double Ts = 0.05;
-        const double     a = std::exp(-Ts / tau);
-        const double     b = K * (1.0 - a);
+        const auto       model = design::smith_predictor(design::FOPDT{.K = K, .tau = tau}, Ts, InputDelay<8>{0.0});
+        REQUIRE(model.success);
 
         // L = 0: y_pred = y, so Smith + pure P matches bare P on the FO plant
-        ProportionalPrimary                            primary{.k = 1.5};
-        SmithPredictor<8, double, ProportionalPrimary> smith(primary, a, b, 0);
+        ProportionalPrimary primary{.k = 1.5};
+        SmithPredictor      smith(primary, model);
+        static_assert(std::is_same_v<decltype(smith), SmithPredictor<8, double, ProportionalPrimary>>);
         REQUIRE(smith.valid());
 
         ProportionalPrimary bare{.k = 1.5};
-        FirstOrderPlant     plant{.a = a, .b = b};
-        FirstOrderPlant     plant_bare{.a = a, .b = b};
+        FirstOrderPlant     plant{.a = model.a, .b = model.b};
+        FirstOrderPlant     plant_bare{.a = model.a, .b = model.b};
 
         constexpr double r = 1.0;
         double           y = 0.0;
@@ -378,14 +446,16 @@ TEST_SUITE("Smith Predictor") {
         // Pure P on a type-0 plant does not eliminate steady-state error — only compare u.
         CHECK(max_diff < 1e-12);
         CHECK(smith.primary().k == doctest::Approx(1.5));
-        (void)y;
-        (void)r;
+        //! The limits are the primary's.
+        REQUIRE(smith.set_limits(ProportionalPrimary::Limits{{.lower = -0.1, .upper = 0.1}}));
+        CHECK(smith.primary().lim.upper(0) == 0.1);
+        CHECK(smith.step(10.0, 0.0) == 0.1);
     }
 
     TEST_CASE("full PID primary via template parameter") {
-        // Smith SIMC hides L from C, so the packed primary is a PI; the point of this
+        // Smith SIMC hides the delay from C, so the packed primary is a PI; the point of this
         // case is that Primary can be PIDController (full mode), not only PI.
-        constexpr auto sp = design::smith_predictor_from_fopdt(1.0, 2.0, 0.0, 0.05, 1.0);
+        constexpr auto sp = design::smith_predictor(design::FOPDT{.K = 1.0, .tau = 2.0}, 0.05, InputDelay<8>{0.0}, design::SIMC{.tau_c = 1.0});
         REQUIRE(sp.success);
         SmithPredictor<8, double, PIDController<double>> smith(sp);
         REQUIRE(smith.valid());
@@ -393,17 +463,22 @@ TEST_SUITE("Smith Predictor") {
     }
 
     TEST_CASE("as<float> converting ctor preserves model coeffs") {
-        constexpr auto             sp = design::smith_predictor_from_fopdt(1.0, 3.0, 0.5, 0.1, 1.0);
+        constexpr auto             sp = design::smith_predictor(design::FOPDT{.K = 1.0, .tau = 3.0}, 0.1, InputDelay<16>{0.55}, design::SIMC{.tau_c = 1.0});
         SmithPredictor<16, double> src(sp);
         REQUIRE(src.valid());
+        for (int k = 0; k < 10; ++k) {
+            (void)src.step(1.0, 0.0);
+        }
         SmithPredictor<16, float> dst(src);
         REQUIRE(dst.valid());
-        CHECK(static_cast<double>(dst.model_output()) == doctest::Approx(0.0));
+        CHECK(static_cast<double>(dst.model_output()) == doctest::Approx(src.model_output()).epsilon(1e-6));
+        CHECK(static_cast<double>(dst.model_gains().stale) == doctest::Approx(src.model_gains().stale).epsilon(1e-6));
         CHECK(dst.delay_samples() == src.delay_samples());
+        CHECK(static_cast<double>(dst.step(1.0f, 0.0f)) == doctest::Approx(src.step(1.0, 0.0)).epsilon(1e-5));
     }
 
     TEST_CASE("constexpr constructibility of design result") {
-        constexpr auto sp = design::smith_predictor_from_fopdt(1.0, 1.0, 0.2, 0.05, 0.5);
+        constexpr auto sp = design::smith_predictor(design::FOPDT{.K = 1.0, .tau = 1.0}, 0.05, InputDelay<8>{0.2}, design::SIMC{.tau_c = 0.5});
         static_assert(sp.success);
         static_assert(sp.delay_samples == 4);
         constexpr auto disc = sp.pid;
@@ -411,7 +486,7 @@ TEST_SUITE("Smith Predictor") {
         (void)disc;
         // The runtime ticks under constant evaluation too (the commands in flight are a fixed array).
         constexpr double u2 = [] {
-            SmithPredictor<8, double> c(design::smith_predictor_from_fopdt(1.0, 1.0, 0.2, 0.05, 0.5));
+            SmithPredictor<8, double> c(design::smith_predictor(design::FOPDT{.K = 1.0, .tau = 1.0}, 0.05, InputDelay<8>{0.2}, design::SIMC{.tau_c = 0.5}));
             (void)c.step(1.0, 0.0);
             return c.step(1.0, 0.0);
         }();
@@ -419,7 +494,7 @@ TEST_SUITE("Smith Predictor") {
     }
 
     TEST_CASE("to_tf recovers SIMC primary; plant_tf is K/(τs+1)") {
-        constexpr auto sp = design::smith_predictor_from_fopdt(2.0, 5.0, 1.0, 0.1, 2.0);
+        constexpr auto sp = design::smith_predictor(design::FOPDT{.K = 2.0, .tau = 5.0}, 0.1, InputDelay<16>{1.0}, design::SIMC{.tau_c = 2.0});
         REQUIRE(sp.success);
         const auto C = design::pid(design::FOPDT{.K = 2.0, .L = 0.0, .tau = 5.0}, 0.1, design::SIMC{.tau_c = 2.0}).gains;
         const auto tf = sp.to_tf();
@@ -435,28 +510,20 @@ TEST_SUITE("Smith Predictor") {
         CHECK(sp.to_ss()->D(0, 0) == doctest::Approx(C.to_ss()->D(0, 0)));
     }
 
-    TEST_CASE("smith designs carry a failed primary's status and refuse an unrepresentable delay") {
+    TEST_CASE("smith designs carry a failed primary's status and refuse a delay that is not finite") {
         // A negative tracking time is refused by the PID design; the Smith design used to report success.
-        const auto wrong_tt = design::pid(design::Parallel{.Kp = 2.0, .Ki = 0.4}, 0.1, design::AntiWindup{.tracking_time = -1.0});
-        const auto from_bad_tt = design::smith_predictor_from_pid(wrong_tt, 1.0, 4.0, 1.0);
+        const auto from_bad_tt = design::smith_predictor(design::FOPDT{.K = 1.0, .tau = 4.0}, 0.1, InputDelay<16>{1.0}, design::Parallel{.Kp = 2.0, .Ki = 0.4}, design::AntiWindup{.tracking_time = -1.0});
         CHECK_FALSE(from_bad_tt.success);
         CHECK(from_bad_tt.status == design::DesignStatus::invalid_parameter);
         SmithPredictor<16, double> runtime(from_bad_tt);
         CHECK_FALSE(runtime.valid());
 
-        const auto failed_tuning = design::pid(design::FOPDT{.K = 0.0, .L = 0.0, .tau = 4.0}, 0.1, design::SIMC{.tau_c = 1.0}); // K = 0: refused
-        REQUIRE_FALSE(failed_tuning.success);
-        CHECK(design::smith_predictor_from_pid(failed_tuning, 1.0, 4.0, 1.0).status == failed_tuning.status);
-
-        // round(L/Ts) has no size_t value for an infinite or huge L.
         const double inf = std::numeric_limits<double>::infinity();
         const double nan = std::numeric_limits<double>::quiet_NaN();
-        const auto   pid = design::pid(design::Parallel{.Kp = 2.0, .Ki = 0.4}, 0.1);
-        CHECK(design::smith_predictor_from_pid(pid, 1.0, 4.0, inf).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::smith_predictor_from_pid(pid, 1.0, 4.0, 1e300).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::smith_predictor_from_fopdt(1.0, 4.0, inf, 0.1).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::smith_predictor_from_fopdt(1.0, nan, 1.0, 0.1).status == design::DesignStatus::invalid_parameter);
-        CHECK(design::smith_predictor_from_fopdt(1.0, 4.0, 1.0, nan).status == design::DesignStatus::invalid_sample_time);
+        CHECK(design::smith_predictor(design::FOPDT{.K = 1.0, .tau = 4.0}, 0.1, InputDelay<16>{inf}).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::smith_predictor(design::FOPDT{.K = 1.0, .tau = 4.0}, 0.1, InputDelay<16>{1e300}).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::smith_predictor(design::FOPDT{.K = 1.0, .tau = nan}, 0.1, InputDelay<16>{1.0}).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::smith_predictor(design::FOPDT{.K = 1.0, .tau = 4.0}, nan, InputDelay<16>{1.0}).status == design::DesignStatus::invalid_sample_time);
     }
 
     TEST_CASE("back_calculate: the model runs on the input that reached the plant, and the primary holds") {
@@ -467,7 +534,7 @@ TEST_SUITE("Smith Predictor") {
         constexpr double L = 1.0;
         constexpr double Ts = 0.05;
         constexpr double rail = 0.8;
-        constexpr auto   sp = design::smith_predictor_from_fopdt(K, tau, L, Ts, 0.5);
+        constexpr auto   sp = design::smith_predictor(design::FOPDT{.K = K, .tau = tau}, Ts, InputDelay<64>{L}, design::SIMC{.tau_c = 0.5});
         REQUIRE(sp.success);
         SmithPredictor<64, double> told(sp);
         SmithPredictor<64, double> untold(sp);
@@ -477,10 +544,17 @@ TEST_SUITE("Smith Predictor") {
         plant_u.init(K, tau, L, Ts);
         double y_t = 0.0;
         double y_u = 0.0;
+        int    cut = 0;
         for (int k = 0; k < 1000; ++k) {
             const double r = (k < 600) ? 2.0 : 0.5; // out of the rail's reach, then within it
-            const double u_t = damp::min(told.step(r, y_t), rail);
+            const double asked = told.step(r, y_t);
+            const double u_t = damp::min(asked, rail);
             told.back_calculate(u_t);
+            if (asked > rail) {
+                ++cut;
+                CHECK(told.last_command() == asked);                        // the command, not the input reported
+                CHECK(told.commands_in_flight()[told.ring_head()] == rail); // which the models run on
+            }
             const double u_u = damp::min(untold.step(r, y_u), rail);
             y_t = plant_t.step(u_t);
             y_u = plant_u.step(u_u);
@@ -489,7 +563,45 @@ TEST_SUITE("Smith Predictor") {
                 CHECK(untold.delayed_model_output() > 10.0 * rail);                            // an output the plant never had
             }
         }
+        CHECK(cut > 100);
         CHECK(y_t == doctest::Approx(0.5).epsilon(0.02)); // back on the reference
         CHECK(y_u > 0.75);                                // still unwinding, on the rail
+    }
+
+    TEST_CASE("track: the models run on the input applied, and the next step at the same r and y returns it") {
+        //! It had no handover: a predictor switched in started from its last commands in flight and
+        //! its primary's last integral.
+        constexpr double K = 1.0;
+        constexpr double tau = 1.0;
+        constexpr double L = 0.5;
+        constexpr double Ts = 0.05;
+        constexpr auto   sp = design::smith_predictor(design::FOPDT{.K = K, .tau = tau}, Ts, InputDelay<16>{L}, design::SIMC{.tau_c = 0.5});
+        REQUIRE(sp.success);
+        SmithPredictor smith{sp};
+        // The plant K/(τs + 1) with its delay, as discretize samples it, read before each period's input.
+        const StateSpace<1, 1, 1> plant{.A = {{-1.0 / tau}}, .B = {{K / tau}}, .C = {{1.0}}};
+        const auto                delayed = discretize(plant, Ts, InputDelay<16>{L});
+        REQUIRE(delayed.success);
+        ColVec<17, double> x{};
+        const double       u_op = 0.6; // an operator drives the plant
+        for (int k = 0; k < 200; ++k) {
+            smith.track(u_op, 1.0, (delayed->C * x)(0, 0));
+            x = (delayed->A * x) + (delayed->B * ColVec<1, double>{u_op});
+        }
+        const double y = (delayed->C * x)(0, 0);
+        CHECK(smith.last_command() == u_op);
+        CHECK(smith.delayed_model_output() == doctest::Approx(y).epsilon(1e-12)); // the model followed the plant
+        smith.track(u_op, 1.0, y);
+        CHECK(smith.step(1.0, y) == doctest::Approx(u_op).epsilon(1e-12));
+    }
+
+    TEST_CASE("Law of a Smith predictor design: N deduced, a failed design refused where it is declared") {
+        static constexpr auto kSmith = design::smith_predictor(design::FOPDT{.K = 1.0, .tau = 2.0}, 0.1, InputDelay<12>{1.0}, design::SIMC{.tau_c = 1.0});
+        Law<kSmith, float>    law;
+        static_assert(std::is_same_v<Law<kSmith, float>::Runtime, SmithPredictor<12, float>>);
+        SmithPredictor<12, float> held{kSmith};
+        for (int k = 0; k < 30; ++k) {
+            CHECK(law.step(1.0f, 0.0f) == held.step(1.0f, 0.0f));
+        }
     }
 }

@@ -219,11 +219,11 @@ Every law in this table reads its run-time limits with `limits()` and sets them 
 | `PRController` | `step(e)` or `step(r, y)` | error | `u_lim` | resonant section holds (`tracking_time` = 0) or unwinds over `tracking_time`; `back_calculate`; `set_frequency` |
 | `HarmonicSuppressor` | `step(e)` or `step(r, y)` | error | `u_lim` | resonators hold, fundamental first; `back_calculate`; `set_fundamental` |
 | `RepetitiveController` | `step(e)` | error | none (an add-on: the clamp is on the sum) | `back_calculate` |
-| `SmithPredictor` | `step(r, y)` | `r` | the primary law's (`limits().input` on a PID primary) | `back_calculate` (the model and the primary law) |
-| `ADRCController` | `step(r, y)` | `r` | `u_lim` | the observer runs on the clamped command; `back_calculate` |
-| `SMCController` | `step(r, y)` | `r` | `u_lim` (output also within ±k/b₀) | `back_calculate` (no-op) |
-| `STSMCController` | `step(r, y)` or `step_sliding(s)` | `r`, or the sliding variable s | `u_lim` | v holds against the clamp; `back_calculate` |
-| `ExtremumSeekingController` | `step(J, valid)` | none | `u_lim` on û and on û + dither | `back_calculate` |
+| `SmithPredictor` | `step(r, y)` | `r` | the primary law's: `limits()` and `set_limits()` forward to it | `back_calculate` (the models and the primary law); `track(u, r, y)` |
+| `ADRCController` | `step(r, y)` | `r` | `input` | the observer runs on the clamped command; `back_calculate`; `track(u, r, y)` runs the observer on u |
+| `SMCController` | `step(r, y)` | `r` | `input` (output also within ±k/b₀) | `back_calculate` (no-op); `track(u, r, y)` |
+| `STSMCController` | `step(r, y)` or `step_sliding(s)` | `r`, or the sliding variable s | `input` | v holds against the clamp; `back_calculate`; `track(u, r, y)`, `track_sliding(u, s)` |
+| `ExtremumSeekingController` | `step(J, valid)` | none | `input` (û + dither), `operating_point` (û) | `back_calculate`; `track(u)` starts û from u |
 
 The PID rows are one runtime, `PIDController<T, Mode>`, and the aliases name its narrower modes: `PIDController pid{res}` deduces a PID from a design, `Law<kRes, T>` of a `constexpr` one the narrowest mode its gains need. They read their run-time limits with `limits()` and set them with `set_limits()`, as the LQ laws and the MPCs do, `design::PIDLimits` (`input`, `integral`), which `design::pid`'s `InputLimits` and `AntiWindup{.limits}` give the law to start with; and their gains with `gains()` and `set_gains()`, the continuous `design::PIDGains` (`Kp`, `Ki`, `Kd`, `Tf`, `b`, `c`, `tracking_time`). Both refuse a value that is not finite or not in range and change nothing; the integral is the I term, in u's units, so a new `Ki` does not bump the command. The other SISO laws hold `u_lim` as a public member.
 
@@ -231,8 +231,8 @@ The PID rows are one runtime, `PIDController<T, Mode>`, and the aliases name its
 
 | Runtime | Tick | Limits | Clamp after the law |
 |---|---|---|---|
-| `Cascade` | `step(r, y_outer, y_inner)` | each loop's own (`limits().input`, else `u_lim`) | `back_calculate`; the outer law holds while the inner command is clamped |
-| `SwitchedController` | `set_mode`, `step(r, y)`, `inject(u)` | each law's own | `back_calculate` goes to the active law; a PID switched in tracks the last applied command and its first step returns it, others start from reset |
+| `Cascade` | `step(r, y_outer, y_inner)` | the inner law's (`limits()`, `set_limits()`); the outer law's are its own | `back_calculate`; the outer law holds while the inner command is clamped (its `limits().input`); `track(u, r, y_outer, y_inner)` |
+| `SwitchedController` | `set_mode`, `step(r, y)`, `inject(u)` | `input`: the active law's, and `set_limits()` sets it on every law | `back_calculate` goes to the active law; a law switched in tracks the last applied command, and its first step returns it where the law has the memory to (a PID's integral, a super-twisting law's v); `track(u, r, y)` |
 | `ActionGovernor` | `filter(u_des)` | A·u ≤ b (box, affine or CBF rows); `set_bounds(b)` each tick | if the projection fails it sends the last safe u |
 
 ## Limits and anti-windup
@@ -248,17 +248,17 @@ One contract for every law:
 | `PIDController`, `PIController` | An `InputLimits` among `design::pid`'s options; at run time `set_limits()` | The integral: it gives back what the tick added, up to what the clamp cut off. With an `AntiWindup{.tracking_time}` it unwinds by back-calculation instead |
 | `LQR`, `LQI`, `LQG`, `LQGI`, `OFLQG` | An `InputLimits` and an `InputRateLimits`, `limits` in the `IntegralAction` and a `DemandLimit`; at run time `set_limits()` | The integrators: they hold (conditional integration), or with a `tracking_time` in the `IntegralAction` unwind by back-calculation; the filter and the delay states move on the clamped command; `OFLQG`'s d̂ stays in `disturbance_lim` |
 | `MPC`, `OFMPC` | An `InputLimits`, an `InputRateLimits`, an `OutputLimits` and a `StateLimits`; at run time `set_limits()` | By construction: the limits are constraints of the QP; `OFMPC`'s d̂ stays in `disturbance` |
-| `ADRCController` | `u_lim` on `ADRCResult` | The ESO runs on the clamped command |
-| `STSMCController` | `u_lim` on `STSMCResult` | The integral state |
+| `ADRCController` | An `InputLimits` among `design::adrc`'s options; at run time `set_limits()` | The ESO runs on the clamped command |
+| `STSMCController` | An `InputLimits` among `design::stsmc`'s options; at run time `set_limits()` | The integral state |
 | `LeadLagController` | `u_lim` on `LeadLagResult` | The recursion runs on the clamped output |
 | `PRController` | `u_lim` on `PRResult` | The resonant section gives back what the tick added (`tracking_time` = 0), or unwinds over `tracking_time` |
 | `HarmonicSuppressor` | `u_lim` on `HarmonicSuppressorResult` | The resonators, fundamental first, never more in all than the clamp cut |
-| `SMCController` | `u_lim` on `SMCResult` | Nothing to hold: it keeps only the last error |
-| `ExtremumSeekingController` | `u_lim` in `ESCSpec` | The operating point stays inside, and follows a clamp reported to it |
-| `SmithPredictor` | its primary's | The primary's memory; the internal model runs on the input reported |
+| `SMCController` | An `InputLimits` among `design::smc`'s options; at run time `set_limits()` | Nothing to hold: it keeps only the last error |
+| `ExtremumSeekingController` | An `InputLimits` among `design::esc`'s options, on û + dither and on û; at run time `set_limits()`, which also narrows û alone (`operating_point`) | The operating point stays inside, and follows a clamp reported to it |
+| `SmithPredictor` | its primary's: `limits()` and `set_limits()` forward to it | The primary's memory; the internal models run on the input reported |
 | `RepetitiveController` | none: it returns a correction | A sample the clamp cut off is not learned |
 | `ClassicalDOB` | none: it returns the corrected command | The estimate takes the input reported |
-| `Cascade` | each loop's own | The outer law holds at the last command the inner loop could follow |
+| `Cascade` | the inner law's (`limits()`, `set_limits()`); the outer law's are its own | The outer law holds at the last command the inner loop could follow |
 
 The integrators' limit bounds the integral a law stores, so its unit is that law's: the I term in output units on a PID (`PIDLimits::integral`), ξ ≈ ∫e·dt on the LQ laws (`IntegralAction::limits`, at run time `integral`). `disturbance` does the same for the d̂ of an `OFLQG` or an `OFMPC`, in d's units: the runtime's alone, set on the law with `set_limits()`. A move limit, an `InputRateLimits`, is per sample on both families; a `SlewLimiter`'s rates are per second.
 
@@ -266,7 +266,7 @@ A limit on a state or an output needs a prediction: `design::mpc` (an `OutputLim
 
 References follow the same split. Every law takes the output reference `r`. The state-feedback laws and the MPCs also take a reference point inside the law, `control(r, x_ref, u_ref)` and `step(r, x_ref, u_ref, y)`, which the clamp covers; with a measured disturbance `control(r, x_ref, u_ref, d)` and `step(r, x_ref, u_ref, d, x)`, the reference and its feedforward first, then what was read (a regulator, which has no r, `control(d)` and `step(d, x)`). An MPC poses its QP about that point and carries it on the model over the horizon, as the LQ gain does, but its output and state limits stay on the absolute outputs and states: a limit that should ride the reference is moved at run time with `set_limits()`. A feedforward added outside any law is `u_ff`, passed to `back_calculate` so it is not taken for saturation. MPC takes `r` or a `Preview` of it, each step's target from it, and weighs the input from the target's: an input preference replaces that through `set_input_target`, and `clear_input_target` restores it.
 
-Not covered yet: `STSMCController`'s integral state has no limit of its own, and `SwitchedController` starts a law without `track(u, r, y)` (anything but a PID) from its reset state.
+Not covered yet: `STSMCController`'s integral state has no limit of its own, and `SwitchedController` starts a law without `track(u, r, y)` (a `SisoController` that is not a `SisoLaw`) from its reset state.
 
 ## Bumpless handover
 

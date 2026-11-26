@@ -370,7 +370,7 @@ TEST_SUITE("State feedback placed: Poles and ObserverPoles") {
         //! NX = 1
         {
             constexpr StateSpace chain{.A = Matrix{{0.0}}, .B = Matrix<1, 1>{{b0}}, .C = Matrix{{1.0}}};
-            const auto           adrc_res = design::adrc<1>(wc, wo, b0, Ts);
+            const auto           adrc_res = design::adrc<1>({.wc = wc, .wo = wo, .b0 = b0}, Ts);
             REQUIRE(adrc_res.success);
             const auto sampled = design::state_feedback(chain, Ts, design::Poles{-wc}, design::ObserverPoles{-wo, -wo}, design::InputDisturbance{});
             REQUIRE(sampled.success);
@@ -410,7 +410,7 @@ TEST_SUITE("State feedback placed: Poles and ObserverPoles") {
         //! NX = 2
         {
             constexpr StateSpace chain{.A = Matrix{{0.0, 1.0}, {0.0, 0.0}}, .B = Matrix<2, 1>{{0.0}, {b0}}, .C = Matrix{{1.0, 0.0}}};
-            const auto           adrc_res = design::adrc<2>(wc, wo, b0, Ts);
+            const auto           adrc_res = design::adrc<2>({.wc = wc, .wo = wo, .b0 = b0}, Ts);
             REQUIRE(adrc_res.success);
             const auto sampled = design::state_feedback(chain, Ts, design::Poles{-wc, -wc}, design::ObserverPoles{-wo, -wo, -wo}, design::InputDisturbance{});
             REQUIRE(sampled.success);

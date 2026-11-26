@@ -222,39 +222,138 @@ TEST_SUITE("NaN guards") {
             pr.Ts = bad;
             CHECK_FALSE(PRController<T>{pr}.valid());
 
-            auto smc = design::smc(T{5}, T{2}, T{1}, ts, static_cast<T>(0.1));
+            auto smc = design::smc({.lambda = T{5}, .k = T{2}, .b0 = T{1}, .phi = static_cast<T>(0.1)}, ts);
             REQUIRE(smc.success);
             auto smc_ts = smc;
             smc_ts.Ts = bad;
             CHECK_FALSE(SMCController<T>{smc_ts}.valid());
             auto smc_phi = smc;
-            smc_phi.phi = bad;
+            smc_phi.gains.phi = bad;
             CHECK(smc_phi.to_tf().num[0] == T{0}); // the zero TF of a design without a boundary layer
+            CHECK_FALSE(SMCController<T>{smc_phi}.valid());
             auto smc_b0 = smc;
-            smc_b0.b0 = bad;
+            smc_b0.gains.b0 = bad;
             CHECK(smc_b0.to_tf().num[0] == T{0});
+            CHECK_FALSE(SMCController<T>{smc_b0}.valid());
+            CHECK(design::smc({.lambda = T{5}, .k = T{2}, .b0 = T{1}}, bad).status == DesignStatus::invalid_sample_time);
 
-            auto stsmc = design::stsmc(T{1}, ts);
+            auto stsmc = design::stsmc({.disturbance_bound = T{1}}, ts);
             REQUIRE(stsmc.success);
+            auto stsmc_k1 = stsmc;
+            stsmc_k1.gains.k1 = bad;
+            CHECK_FALSE(STSMCController<T>{stsmc_k1}.valid());
             stsmc.Ts = bad;
             CHECK_FALSE(STSMCController<T>{stsmc}.valid());
+            CHECK(design::stsmc({.k1 = T{1}, .k2 = T{1}}, bad).status == DesignStatus::invalid_sample_time);
 
-            auto smith = design::smith_predictor_from_fopdt(T{2}, T{1}, static_cast<T>(0.1), static_cast<T>(0.01));
+            auto smith = design::smith_predictor(design::FOPDT<T>{.K = T{2}, .tau = T{1}}, static_cast<T>(0.01), InputDelay<16, T>{static_cast<T>(0.1)});
             REQUIRE(smith.success);
             auto smith_ts = smith;
             smith_ts.Ts = bad;
             CHECK(smith_ts.primary_pid().Kp == T{0});
-            SmithPredictor<8, T> hand{PIController<T>{smith.pid}, static_cast<T>(0.9), bad, 2};
+            auto smith_b = smith;
+            smith_b.b_fresh = bad;
+            SmithPredictor<16, T> hand{PIController<T>{smith.pid}, smith_b};
             CHECK_FALSE(hand.valid());
+            CHECK(design::smith_predictor(design::FOPDT<T>{.K = T{2}, .tau = T{1}}, bad, InputDelay<16, T>{static_cast<T>(0.1)}).status == DesignStatus::invalid_sample_time);
+            CHECK(design::smith_predictor(design::FOPDT<T>{.K = T{2}, .tau = T{1}}, static_cast<T>(0.01), InputDelay<16, T>{bad}).status == DesignStatus::invalid_parameter);
         }
     }
 
+    TEST_CASE_TEMPLATE("SMC, STSMC, ADRC and ESC set_gains and set_limits refuse a bad value at run time and change nothing", T, float, double) {
+        //! A gain or a limit that arrives at run time, from a tuning link or a config file.
+        const T                      Ts = static_cast<T>(1e-3);
+        SMCController<T>             smc{design::smc({.lambda = T{10}, .k = T{5}, .b0 = T{1}, .phi = static_cast<T>(0.5)}, Ts, design::InputLimits<1, T>{.lower = {T{-2}}, .upper = {T{2}}})};
+        STSMCController<T>           st{design::stsmc({.k1 = T{2}, .k2 = T{2}, .lambda = T{5}}, Ts, design::InputLimits<1, T>{.lower = {T{-2}}, .upper = {T{2}}})};
+        ADRCController<2, T>         adrc{design::adrc<2>({.wc = T{10}, .wo = T{50}, .b0 = T{2}}, Ts, design::InputLimits<1, T>{.lower = {T{-2}}, .upper = {T{2}}})};
+        ExtremumSeekingController<T> esc{design::esc({.dither_amplitude = static_cast<T>(0.05), .dither_omega = T{250}, .gain = T{60}}, Ts, design::InputLimits<1, T>{.lower = {T{-2}}, .upper = {T{2}}})};
+        REQUIRE((smc.valid() && st.valid() && adrc.valid() && esc.valid()));
+        for (int k = 0; k < 20; ++k) {
+            const T y = static_cast<T>(0.01) * static_cast<T>(k);
+            (void)smc.step(T{1}, y);
+            (void)st.step(T{1}, y);
+            (void)adrc.step(T{1}, y);
+            (void)esc.step(y);
+        }
+        const auto smc_g = smc.gains();
+        const auto st_g = st.gains();
+        const auto adrc_g = adrc.gains();
+        const auto lim = smc.limits();
+        const T    v = st.integral_state();
+        const auto z = adrc.observer();
+        const T    uhat = esc.operating_point();
+        const auto unchanged = [&] {
+            const auto a = smc.gains();
+            const auto b = st.gains();
+            const auto c = adrc.gains();
+            return bits_of(a.lambda) == bits_of(smc_g.lambda) && bits_of(a.k) == bits_of(smc_g.k) && bits_of(a.b0) == bits_of(smc_g.b0)
+                && bits_of(a.phi) == bits_of(smc_g.phi) && bits_of(b.k1) == bits_of(st_g.k1) && bits_of(b.k2) == bits_of(st_g.k2)
+                && bits_of(b.lambda) == bits_of(st_g.lambda) && bits_of(b.k_lin) == bits_of(st_g.k_lin) && bits_of(b.phi) == bits_of(st_g.phi)
+                && bits_of(c.wc) == bits_of(adrc_g.wc) && bits_of(c.wo) == bits_of(adrc_g.wo) && bits_of(c.b0) == bits_of(adrc_g.b0)
+                && bits_of(st.integral_state()) == bits_of(v) && bits_of(adrc.observer()[2]) == bits_of(z[2])
+                && bits_of(esc.operating_point()) == bits_of(uhat)
+                && bits_of(smc.limits().input.upper(0)) == bits_of(lim.input.upper(0)) && bits_of(st.limits().input.lower(0)) == bits_of(lim.input.lower(0))
+                && bits_of(adrc.limits().input.upper(0)) == bits_of(lim.input.upper(0)) && bits_of(esc.limits().input.lower(0)) == bits_of(lim.input.lower(0));
+        };
+        for (const T bad : non_finite<T>()) {
+            for (int field = 0; field < 4; ++field) {
+                auto     g = smc_g;
+                T* const slots[] = {&g.lambda, &g.k, &g.b0, &g.phi};
+                *slots[field] = bad;
+                CHECK_FALSE(smc.set_gains(g));
+                CHECK(unchanged());
+            }
+            for (int field = 0; field < 5; ++field) {
+                auto     g = st_g;
+                T* const slots[] = {&g.k1, &g.k2, &g.lambda, &g.k_lin, &g.phi};
+                *slots[field] = bad;
+                CHECK_FALSE(st.set_gains(g));
+                CHECK(unchanged());
+            }
+            for (int field = 0; field < 3; ++field) {
+                auto     g = adrc_g;
+                T* const slots[] = {&g.wc, &g.wo, &g.b0};
+                *slots[field] = bad;
+                CHECK_FALSE(adrc.set_gains(g));
+                CHECK(unchanged());
+            }
+            for (int end = 0; end < 2; ++end) {
+                auto l = lim;
+                (end == 0 ? l.input.lower(0) : l.input.upper(0)) = bad;
+                CHECK_FALSE(smc.set_limits(l));
+                CHECK_FALSE(st.set_limits({l.input}));
+                CHECK_FALSE(adrc.set_limits({l.input}));
+                auto e = esc.limits();
+                (end == 0 ? e.input.lower(0) : e.input.upper(0)) = bad;
+                CHECK_FALSE(esc.set_limits(e));
+                auto o = esc.limits();
+                (end == 0 ? o.operating_point.lower(0) : o.operating_point.upper(0)) = bad;
+                CHECK_FALSE(esc.set_limits(o));
+                CHECK(unchanged());
+            }
+        }
+        auto neg_phi = smc_g;
+        neg_phi.phi = static_cast<T>(-0.1);
+        CHECK_FALSE(smc.set_gains(neg_phi));
+        auto zero_b0 = adrc_g;
+        zero_b0.b0 = T{0};
+        CHECK_FALSE(adrc.set_gains(zero_b0));
+        auto inverted = lim;
+        inverted.input = {.lower = T{1}, .upper = T{-1}};
+        CHECK_FALSE(smc.set_limits(inverted));
+        CHECK(unchanged());
+        //! And the laws run on as they did.
+        CHECK(damp::isfinite(smc.step(T{1}, T{0})));
+        CHECK(damp::isfinite(st.step(T{1}, T{0})));
+        CHECK(damp::isfinite(adrc.step(T{1}, T{0})));
+    }
+
     TEST_CASE_TEMPLATE("ADRC refuses a non-finite b0 in its result and its runtime", T, float, double) {
-        const auto good = design::adrc<1>(T{10}, T{40}, T{2}, static_cast<T>(1e-3));
+        const auto good = design::adrc<1>({.wc = T{10}, .wo = T{40}, .b0 = T{2}}, static_cast<T>(1e-3));
         REQUIRE(good.success);
         for (const T bad : non_finite<T>()) {
             auto broken = good;
-            broken.b0 = bad;
+            broken.gains.b0 = bad;
             const auto sys = broken.to_ss_2dof();
             CHECK(sys.C(0, 0) == T{0}); // the zero system
             CHECK(sys.D(0, 0) == T{0});
@@ -357,10 +456,12 @@ TEST_SUITE("NaN guards") {
 
     TEST_CASE_TEMPLATE("observers built from a result with a non-finite sample time are invalid", T, float, double) {
         for (const T bad : non_finite<T>()) {
-            auto eso = design::eso<1>(T{40}, T{2}, static_cast<T>(1e-3));
+            auto eso = design::eso<1>({.wo = T{40}, .b0 = T{2}}, static_cast<T>(1e-3));
             REQUIRE(eso.success);
             eso.Ts = bad;
             CHECK_FALSE(ESO<1, T>{eso}.valid());
+            CHECK(design::eso<1>({.wo = T{40}, .b0 = T{2}}, bad).status == DesignStatus::invalid_sample_time);
+            CHECK(design::adrc<1>({.wc = T{10}, .wo = T{40}, .b0 = T{2}}, bad).status == DesignStatus::invalid_sample_time);
 
             const StateSpace<2, 1, 1, T> sys{
                 .A = {{T{1}, static_cast<T>(0.1)}, {T{0}, T{1}}},
@@ -538,10 +639,13 @@ TEST_SUITE("NaN guards") {
     }
 
     TEST_CASE_TEMPLATE("ESC for MPPT refuses a NaN low-pass corner instead of taking the default", T, float, double) {
-        design::ESCSpec<T> spec{.dither_amplitude = static_cast<T>(0.1), .dither_freq_hz = T{50}, .gain = T{20}};
+        design::ESCSpec<T> spec{.dither_amplitude = static_cast<T>(0.1), .dither_omega = T{314}, .gain = T{20}};
         REQUIRE(design::esc_mppt(spec, static_cast<T>(1e-3)).success);
-        spec.lp_cutoff_hz = runtime_nan<T>();
+        spec.lp_omega = runtime_nan<T>();
         CHECK(design::esc_mppt(spec, static_cast<T>(1e-3)).status == DesignStatus::invalid_parameter);
+        spec.lp_omega = T{0};
+        CHECK(design::esc(spec, runtime_nan<T>()).status == DesignStatus::invalid_sample_time);
+        CHECK(design::esc(spec, static_cast<T>(1e-3), design::InputLimits<1, T>{.lower = {runtime_nan<T>()}, .upper = {T{1}}}).status == DesignStatus::invalid_parameter);
     }
 
     TEST_CASE_TEMPLATE("toolbox blocks hold or fall back on a non-finite parameter", T, float, double) {
@@ -638,13 +742,15 @@ TEST_SUITE("NaN guards") {
 
     TEST_CASE_TEMPLATE("parameters that had no guard are refused when not finite", T, float, double) {
         const T ts{static_cast<T>(1e-4)};
-        auto    smith = design::smith_predictor_from_fopdt(T{2}, T{1}, static_cast<T>(0.1), static_cast<T>(0.01));
+        auto    smith = design::smith_predictor(design::FOPDT<T>{.K = T{2}, .tau = T{1}}, static_cast<T>(0.01), InputDelay<8, T>{static_cast<T>(0.02)});
         REQUIRE(smith.success);
         for (const T bad : non_finite<T>()) {
             CHECK_FALSE(SogiFll<T>(T{50}, ts, numbers::sqrt2_v<T>, bad).valid());
             CHECK_FALSE(RobustExactDifferentiator<T>(T{10}, static_cast<T>(0.01), bad).valid());
             CHECK_FALSE(RobustExactDifferentiator<T>(T{10}, static_cast<T>(0.01), static_cast<T>(1.5), bad).valid());
-            CHECK_FALSE(SmithPredictor<8, T>(PIController<T>{smith.pid}, bad, static_cast<T>(0.1), 2).valid());
+            auto by_hand = smith;
+            by_hand.a = bad;
+            CHECK_FALSE(SmithPredictor<8, T>(PIController<T>{smith.pid}, by_hand).valid());
 
             design::RelayAutotuneConfig<T> relay{};
             relay.setpoint = bad;
@@ -679,7 +785,7 @@ TEST_SUITE("NaN guards") {
             CHECK_FALSE(PIDController<T, PIDMode::P>{bad_ts}.valid());
         }
         CHECK(SogiFll<T>(T{50}, ts, numbers::sqrt2_v<T>, T{0}).valid()); // Γ = 0: a fixed frequency
-        CHECK(SmithPredictor<8, T>(PIController<T>{smith.pid}, smith.a, smith.b, 2).valid());
+        CHECK(SmithPredictor<8, T>(PIController<T>{smith.pid}, smith).valid());
         design::PIDResult<T> p{.Ts = ts};
         design::detail::set_status(p, DesignStatus::ok);
         p.gains.Kp = T{1};

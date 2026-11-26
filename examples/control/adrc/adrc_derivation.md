@@ -80,7 +80,7 @@ fair part.
 
 ### ADRC (what you would flash)
 
-`design::adrc<2>(wc, wo, b0, Ts)` (the ESO discretized by ZOH at the loop period, its
+`design::adrc<2>({.wc = wc, .wo = wo, .b0 = b0}, Ts, design::InputLimits{…})` (the ESO discretized by ZOH at the loop period, its
 observer poles at $`e^{-\omega_o T_s}`$):
 
 - $`K_p = \omega_c^2`$, $`K_d = 2\omega_c`$ — a PD on the *estimated*
