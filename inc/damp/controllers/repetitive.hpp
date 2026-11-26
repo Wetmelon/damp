@@ -21,7 +21,7 @@
  * It is a *plug-in*: it sits alongside any base controller and adds a correction.
  *
  *     e   = r - y;                 // tracking error
- *     u   = base.control(r, y) + rc.control(e);
+ *     u   = base.step(r, y) + rc.step(e);
  *
  * Standard discrete realization (robustness filter Q(z), integer phase lead m):
  *
@@ -192,7 +192,7 @@ template<typename T, size_t MaxQHalf>
  * @code
  * auto                             d = design::repetitive(10000.0, 50.0); // 10 kHz, 50 Hz
  * RepetitiveController<256, double> rc(d);
- * double                           u = base.control(r, y) + rc.control(r - y); // plug-in correction
+ * double                           u = base.step(r, y) + rc.step(r - y); // plug-in correction
  * @endcode
  *
  * MATLAB® equivalent (no single builtin — the internal model is a delay loop):
@@ -274,7 +274,7 @@ template<size_t M, typename T = double>
  * @brief Plug-in repetitive controller runtime (fixed-size internal model).
  *
  * `MaxPeriod` bounds the internal-model buffer at compile time (allocation-free);
- * the active period N ≤ MaxPeriod is set from the design. `control(e)` returns
+ * the active period N ≤ MaxPeriod is set from the design. `step(e)` returns
  * the repetitive correction to add to the base controller's command. `MaxQHalf`
  * bounds the optional zero-phase FIR Q half-width (0 = scalar Q). A failed design, or
  * one whose period + q_half exceeds MaxPeriod, does not compile under constant
@@ -323,7 +323,7 @@ public:
      * @brief Advance one tick with the tracking error @p e; returns the
      *        repetitive correction u_rc to add to the base command.
      */
-    [[nodiscard]] constexpr T control(T e) {
+    [[nodiscard]] constexpr T step(T e) {
         if (!valid_) {
             return T{0};
         }
@@ -375,7 +375,7 @@ public:
         }
     }
 
-    /** @brief The correction the last control() returned. */
+    /** @brief The correction the last step() returned. */
     [[nodiscard]] constexpr T last_command() const { return u_cmd_; }
 
     /** @brief Clear the learned internal model (buffer + write index); config preserved. */
@@ -419,8 +419,8 @@ private:
     damp::array<T, MaxPeriod>             mem_{};
     damp::array<signed char, MaxPeriod>   clamp_{}; ///< Per tick, which way a clamp cut the command off (back_calculate): −1, 0, +1
     size_t                                write_idx_{0};
-    T                                     e_last_{}; ///< The error the last control() stored
-    T                                     u_cmd_{};  ///< The correction the last control() returned
+    T                                     e_last_{}; ///< The error the last step() stored
+    T                                     u_cmd_{};  ///< The correction the last step() returned
     bool                                  valid_{false};
 };
 

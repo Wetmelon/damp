@@ -427,7 +427,7 @@ private:
  * // 50 Hz grid current regulator at 10 kHz
  * auto                d = design::pr({.Kp = 1.0, .Ki = 200.0, .w0 = 2 * std::numbers::pi * 50, .wc = 10.0}, 1e-4);
  * PRController<double> pr(d);
- * double              u = pr.control(i_ref, i_meas); // (r, y) form
+ * double              u = pr.step(i_ref, i_meas); // (r, y) form
  * @endcode
  *
  * @tparam T Scalar type (default: float)
@@ -441,8 +441,8 @@ struct PRController {
     T            Ts{};
     T            tracking_time{T{0}}; ///< Back-calculation tracking time T_t [s]: ΔR = min(Ts/T_t, 1)(u_sat − (u + u_ff)); 0: the resonant section holds
     Bounds<1, T> u_lim{};             ///< Limits on the command (the result's; default unbounded)
-    T            u_cmd{T{0}};         ///< Last command control() returned: the u in back_calculate's u_sat − (u + u_ff)
-    bool         valid_{false};       ///< From the design's success flag; gates control()
+    T            u_cmd{T{0}};         ///< Last command step() returned: the u in back_calculate's u_sat − (u + u_ff)
+    bool         valid_{false};       ///< From the design's success flag; gates step()
 
     //! Discretized resonant term (inert until designed).
     PRResonator<T> resonant{};
@@ -494,7 +494,7 @@ struct PRController {
      * @param error Current error (reference - measurement)
      * @return Control output u, clamped into u_lim (zero if the design was invalid)
      */
-    [[nodiscard]] constexpr T control(T error) {
+    [[nodiscard]] constexpr T step(T error) {
         if (!valid_) {
             return T{0};
         }
@@ -507,12 +507,12 @@ struct PRController {
     /**
      * @brief Reference-tracking overload satisfying SISOController.
      *
-     * Computes the error internally and forwards to the error-form `control()`.
+     * Computes the error internally and forwards to the error-form `step()`.
      * Lets this controller be used directly in `Cascade<Outer, PRController>`
      * and in tuning harnesses that speak the (r, y) protocol.
      */
-    [[nodiscard]] constexpr T control(T r, T y) {
-        return control(r - y);
+    [[nodiscard]] constexpr T step(T r, T y) {
+        return step(r - y);
     }
 
     /** @brief Clear the resonant filter's delay line and the last command; gains and config are preserved. */
@@ -523,7 +523,7 @@ struct PRController {
 
     [[nodiscard]] constexpr bool valid() const { return valid_; }
 
-    /** @brief The command the last control() returned, inside u_lim. */
+    /** @brief The command the last step() returned, inside u_lim. */
     [[nodiscard]] constexpr T last_command() const { return u_cmd; }
 
     /**

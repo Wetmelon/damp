@@ -32,7 +32,7 @@ struct EulerADRC {
     damp::array<double, NX + 1>    z{};
     double                         u_prev{0.0};
 
-    double control(double ref, double y) {
+    double step(double ref, double y) {
         const double                e = z[0] - y;
         damp::array<double, NX + 1> dz{};
         for (size_t i = 0; i < NX; ++i) {
@@ -79,8 +79,8 @@ Gap euler_gap(double wc, double wo, double Ts, size_t N) {
     Gap                       g{};
     for (size_t k = 0; k < N; ++k) {
         p_zoh.d = p_euler.d = (k < N / 2) ? 0.0 : 0.5;
-        const double u_zoh = zoh.control(1.0, p_zoh.y);
-        const double u_euler = euler.control(1.0, p_euler.y);
+        const double u_zoh = zoh.step(1.0, p_zoh.y);
+        const double u_euler = euler.step(1.0, p_euler.y);
         g.max_u = damp::max(g.max_u, damp::abs(u_euler));
         g.max_du = damp::max(g.max_du, damp::abs(u_zoh - u_euler));
         p_zoh.step(u_zoh, Ts);
@@ -179,18 +179,18 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         // Runtime from a failed design must not produce Inf/NaN.
         ADRCController<1, double> ctrl(bad_b0);
         CHECK_FALSE(ctrl.valid());
-        CHECK(ctrl.control(1.0, 0.0) == 0.0);
+        CHECK(ctrl.step(1.0, 0.0) == 0.0);
     }
 
     TEST_CASE("converting ctor preserves gains and ESO state") {
         ADRCController<1, double> d(design::adrc<1>(20.0, 100.0, 1.0, 1e-3));
-        (void)d.control(1.0, 0.2);
-        (void)d.control(1.0, 0.4);
+        (void)d.step(1.0, 0.2);
+        (void)d.step(1.0, 0.4);
 
         ADRCController<1, float> f(d);
         CHECK(f.valid());
         // Next step matches within float precision (state + gains carried over).
-        CHECK(static_cast<double>(f.control(1.0f, 0.5f)) == doctest::Approx(d.control(1.0, 0.5)).epsilon(1e-5));
+        CHECK(static_cast<double>(f.step(1.0f, 0.5f)) == doctest::Approx(d.step(1.0, 0.5)).epsilon(1e-5));
     }
 
     TEST_CASE("ADRCResult::as propagates success") {
@@ -214,7 +214,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         const double a = 2.0, b = 1.0, d = 0.5, r = 1.0;
         double       y = 0.0;
         for (int k = 0; k < 20000; ++k) {
-            const double u = ctrl.control(r, y);
+            const double u = ctrl.step(r, y);
             y += (-a * y + b * u + d) * Ts;
         }
         CHECK(y == doctest::Approx(r).epsilon(0.01)); // zero steady-state error
@@ -228,7 +228,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         const double b = 1.0, d = 0.3, r = 1.0;
         double       y = 0.0, v = 0.0;
         for (int k = 0; k < 30000; ++k) {
-            const double u = ctrl.control(r, y);
+            const double u = ctrl.step(r, y);
             v += (b * u + d) * Ts;
             y += v * Ts;
         }
@@ -242,8 +242,8 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         const double wo = 50.0;
         auto         c1 = ADRCController<2, double>(design::adrc<2>(wc, wo, 1.0, Ts));
         auto         c2 = ADRCController<2, double>(design::adrc<2>(wc, wo, 2.0, Ts));
-        const double u1 = c1.control(1.0, 0.0);
-        const double u2 = c2.control(1.0, 0.0);
+        const double u1 = c1.step(1.0, 0.0);
+        const double u2 = c2.step(1.0, 0.0);
         // Fresh ESO: z = 0, so u = Kp r / b0 = wc² r / b0 (no extra 1/b0).
         CHECK(u1 == doctest::Approx(wc * wc).epsilon(1e-12));
         CHECK(u2 == doctest::Approx(u1 / 2.0).epsilon(1e-12));
@@ -252,7 +252,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         const double b = 2.0, d = 0.3, r = 1.0;
         auto         ctrl = ADRCController<2, double>(design::adrc<2>(wc, wo, b, Ts));
         for (int k = 0; k < 30000; ++k) {
-            const double u = ctrl.control(r, y);
+            const double u = ctrl.step(r, y);
             v += (b * u + d) * Ts;
             y += v * Ts;
         }
@@ -264,13 +264,13 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         const double Ts = 1e-3;
         auto         ctrl = ADRCController<1, double>(design::adrc<1>(20.0, 100.0, 1.0, Ts));
         for (int k = 0; k < 100; ++k) {
-            (void)ctrl.control(1.0, 0.0);
+            (void)ctrl.step(1.0, 0.0);
         }
         ctrl.reset();
         // After reset the ESO state is zero, so the first command equals the
         // fresh-controller command for the same inputs.
         ADRCController<1, double> fresh(design::adrc<1>(20.0, 100.0, 1.0, Ts));
-        CHECK(ctrl.control(1.0, 0.0) == doctest::Approx(fresh.control(1.0, 0.0)));
+        CHECK(ctrl.step(1.0, 0.0) == doctest::Approx(fresh.step(1.0, 0.0)));
     }
 
     TEST_CASE("the runtime ticks at the design's Ts; back_calculate overrides u_prev") {
@@ -280,22 +280,22 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         CHECK(res.Ts == doctest::Approx(Ts));
         ADRCController<1, double> ctrl{res}; // Ts comes from the result
 
-        const double u3 = ctrl.control(1.0, 0.0);
+        const double u3 = ctrl.step(1.0, 0.0);
         ctrl.reset();
-        const double u2 = ctrl.control(1.0, 0.0);
+        const double u2 = ctrl.step(1.0, 0.0);
         CHECK(u2 == doctest::Approx(u3));
 
         // Warm the ESO with a nonzero measurement so u_prev enters the update.
         ctrl.reset();
         for (int k = 0; k < 20; ++k) {
-            (void)ctrl.control(1.0, 0.5);
+            (void)ctrl.step(1.0, 0.5);
         }
-        const double u_free = ctrl.control(1.0, 0.5);
+        const double u_free = ctrl.step(1.0, 0.5);
         ctrl.back_calculate(0.0); // plant saturated to 0
         // Same inputs; ESO next tick uses u_prev=0 instead of u_free
         CHECK(ctrl.last_command() == u_free); // the command, as on the other laws
         CHECK(ctrl.applied() == 0.0);         // and what the ESO takes as applied
-        const double u_after = ctrl.control(1.0, 0.5);
+        const double u_after = ctrl.step(1.0, 0.5);
         CHECK(u_after != doctest::Approx(u_free));
         CHECK(ctrl.last_command() == doctest::Approx(u_after));
         CHECK(ctrl.applied() == ctrl.last_command());
@@ -313,7 +313,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         CHECK(b.b0 == doctest::Approx(4.0));
 
         ADRCController<1, double> c1(design::adrc<1>(12.0, 60.0, 0.5, 1e-3));
-        CHECK(c1.control(1.0, 0.0) == doctest::Approx(12.0 / 0.5).epsilon(1e-12));
+        CHECK(c1.step(1.0, 0.0) == doctest::Approx(12.0 / 0.5).epsilon(1e-12));
     }
 
     TEST_CASE("1st-order: y→r, u→(a r − d)/b, ESO matches f = −b0 u at rest") {
@@ -326,7 +326,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         double    u = 0.0;
         const int N = 20000; // 10 s
         for (int k = 0; k < N; ++k) {
-            u = ctrl.control(r, y);
+            u = ctrl.step(r, y);
             y += (-a * y + b * u + d) * Ts;
         }
         const double u_ss = (a * r - d) / b;
@@ -345,7 +345,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
 
         double y = 0.0, v = 0.0, u = 0.0;
         for (int k = 0; k < 30000; ++k) {
-            u = ctrl.control(r, y);
+            u = ctrl.step(r, y);
             v += (b * u + d) * Ts;
             y += v * Ts;
         }
@@ -368,7 +368,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
             int          inside = 0;
             const int    N = static_cast<int>(3.0 / Ts);
             for (int k = 0; k < N; ++k) {
-                const double u = ctrl.control(r, y);
+                const double u = ctrl.step(r, y);
                 v += u * Ts;
                 y += v * Ts;
                 if (damp::abs(y - r) < 0.05) {
@@ -402,7 +402,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
             double    y = 0.0, d = 0.0;
             const int warm = static_cast<int>(1.2 / Ts);
             for (int k = 0; k < warm; ++k) {
-                const double u = ctrl.control(r, y);
+                const double u = ctrl.step(r, y);
                 y += (-a * y + u + d) * Ts;
             }
             REQUIRE(damp::abs(y - r) < 0.03);
@@ -410,7 +410,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
             double    peak = 0.0;
             const int N = static_cast<int>(1.0 / Ts);
             for (int k = 0; k < N; ++k) {
-                const double u = ctrl.control(r, y);
+                const double u = ctrl.step(r, y);
                 y += (-a * y + u + d) * Ts;
                 peak = damp::max(peak, damp::abs(y - r));
             }
@@ -431,7 +431,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         const double b_plant = 2.0, d = 0.4, r = 1.0;
         double       y = 0.0, v = 0.0;
         for (int k = 0; k < 25000; ++k) {
-            const double u = ctrl.control(r, y);
+            const double u = ctrl.step(r, y);
             v += (b_plant * u + d) * Ts;
             y += v * Ts;
         }
@@ -447,7 +447,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         double       y = 0.0, x = 0.0;
         const double r = 1.0, a = 1.5, d = 0.3;
         for (int k = 0; k < 25000; ++k) {
-            const double u = ctrl.control(r, y);
+            const double u = ctrl.step(r, y);
             x += ((u - x) / tau) * Ts;
             y += (-a * y + x + d) * Ts;
         }
@@ -460,7 +460,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         double       y = 0.0;
         const double r = 0.8, a = 2.0, d = 0.2;
         for (int k = 0; k < 20000; ++k) {
-            const double u = ctrl.control(r, y);
+            const double u = ctrl.step(r, y);
             y += (-a * y + u + d) * Ts;
         }
         CHECK(y == doctest::Approx(r).epsilon(0.02));
@@ -476,8 +476,8 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         double       y_aw = 0.0, y_na = 0.0;
         const int    sat_steps = static_cast<int>(0.8 / Ts);
         for (int k = 0; k < sat_steps; ++k) {
-            const double u_aw = with_aw.control(1.0, y_aw);
-            const double u_na = no_aw.control(1.0, y_na);
+            const double u_aw = with_aw.step(1.0, y_aw);
+            const double u_na = no_aw.step(1.0, y_na);
             const double applied_aw = damp::clamp(u_aw, -umax, umax);
             const double applied_na = damp::clamp(u_na, -umax, umax);
             with_aw.back_calculate(applied_aw);
@@ -488,8 +488,8 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         // During sat the plant cannot reach r=1. Drop the reference to a feasible 0.15.
         const double r2 = 0.15;
         for (int k = 0; k < static_cast<int>(1.5 / Ts); ++k) {
-            const double u_aw = with_aw.control(r2, y_aw);
-            const double u_na = no_aw.control(r2, y_na);
+            const double u_aw = with_aw.step(r2, y_aw);
+            const double u_na = no_aw.step(r2, y_na);
             const double applied_aw = damp::clamp(u_aw, -umax, umax);
             const double applied_na = damp::clamp(u_na, -umax, umax);
             with_aw.back_calculate(applied_aw);
@@ -509,7 +509,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         float                    y = 0.0f, v = 0.0f;
         const float              b = 2.0f, d = 0.25f, r = 1.0f;
         for (int k = 0; k < 20000; ++k) {
-            const float u = ctrl.control(r, y);
+            const float u = ctrl.step(r, y);
             v += (b * u + d) * Ts;
             y += v * Ts;
         }
@@ -523,7 +523,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         auto ctrl = ADRCController<2, double>(design::adrc<2>(10.0, 50.0, 1.0));
         CHECK_FALSE(ctrl.valid());
         for (const double y : {0.0, 0.5, 5.0, -3.0}) {
-            CHECK(ctrl.control(1.0, y) == 0.0);
+            CHECK(ctrl.step(1.0, y) == 0.0);
         }
         CHECK(ctrl.observer()[0] == 0.0);
     }
@@ -617,10 +617,10 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         DoubleIntegrator          p_euler{.d = 0.3};
         int                       diverged_at = -1; // first tick |u| passes 1e6 (then Euler stops)
         for (int k = 0; k < 2000; ++k) {
-            const double u_zoh = zoh.control(1.0, p_zoh.y);
+            const double u_zoh = zoh.step(1.0, p_zoh.y);
             p_zoh.step(u_zoh, Ts);
             if (diverged_at < 0) {
-                const double u_euler = euler.control(1.0, p_euler.y);
+                const double u_euler = euler.step(1.0, p_euler.y);
                 if (damp::abs(u_euler) > 1e6) {
                     diverged_at = k;
                 }
@@ -665,8 +665,8 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         ADRCController<2, double> cold{res};
         ADRCController<2, double> warm{res};
         warm.reset(ColVec{1.0, 0.0, 0.0});
-        CHECK(damp::abs(cold.control(1.0, 1.0)) > 100.0);
-        CHECK(warm.control(1.0, 1.0) == doctest::Approx(0.0).scale(1.0));
+        CHECK(damp::abs(cold.step(1.0, 1.0)) > 100.0);
+        CHECK(warm.step(1.0, 1.0) == doctest::Approx(0.0).scale(1.0));
     }
 
     TEST_CASE_TEMPLATE("u_lim alone is the law clamped outside and told with back_calculate", T, float, double) {
@@ -687,8 +687,8 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         int     saturated = 0;
         for (int k = 0; k < 4600; ++k) {
             const T r = (k < 1600) ? T{1} : static_cast<T>(0.15); // ẏ = −y + u: r = 1 is out of reach, 0.15 is not
-            const T ua = bounded.control(r, ya);
-            const T ub = damp::clamp(outside.control(r, yb), static_cast<T>(-umax), static_cast<T>(umax));
+            const T ua = bounded.step(r, ya);
+            const T ub = damp::clamp(outside.step(r, yb), static_cast<T>(-umax), static_cast<T>(umax));
             outside.back_calculate(ub);
             saturated += (damp::abs(ua) >= static_cast<T>(umax)) ? 1 : 0;
             CHECK(damp::abs(ua) <= static_cast<T>(umax));
@@ -706,7 +706,7 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         res.u_lim = {.lower = 1.0, .upper = -1.0};
         ADRCController<1, double> inert{res};
         CHECK_FALSE(inert.valid());
-        CHECK(inert.control(1.0, 0.0) == 0.0);
+        CHECK(inert.step(1.0, 0.0) == 0.0);
 
         static constexpr auto kRes = [] {
             auto r = design::adrc<1>(20.0, 80.0, 1.0, 5e-4);
@@ -715,8 +715,8 @@ TEST_SUITE("Active Disturbance Rejection Control (ADRC)") {
         }();
         Law<kRes, float> law;
         CHECK(law.u_lim.upper(0) == 0.25F);
-        CHECK(law.control(1.0F, 0.0F) == 0.25F);
+        CHECK(law.step(1.0F, 0.0F) == 0.25F);
         law.u_lim.upper(0) = 0.125F; // a rail that moves
-        CHECK(law.control(1.0F, 0.0F) == 0.125F);
+        CHECK(law.step(1.0F, 0.0F) == 0.125F);
     }
 }

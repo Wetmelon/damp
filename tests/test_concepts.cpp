@@ -209,7 +209,7 @@ TEST_CASE("fixed-rate PID equals ContinuousPID ticked at the same Ts") {
         for (int k = 0; k < 50; ++k) {
             const double r = 1.0;
             const double y = 0.1 * k * Ts;
-            CHECK(disc.control(r, y) == doctest::Approx(cont.control(r, y, Ts)).epsilon(1e-15));
+            CHECK(disc.step(r, y) == doctest::Approx(cont.step(r, y, Ts)).epsilon(1e-15));
         }
     }
 }

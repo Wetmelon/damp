@@ -40,7 +40,7 @@
  *   // NX comes from x0, NY from what output returns and NU from what controller returns
  *   auto result = simulate(plant, output, controller, solver, x0, {0.0, 10.0});
  *
- *   // SISO PID (or any control(r,y) SisoController) with a constant reference:
+ *   // SISO PID (or any step(r, y) SisoController) with a constant reference:
  *   auto pid = PIController<double>{design::pid(2.0, 5.0, 0.0).discretize(Ts)};
  *   auto sil = simulate_lti_siso(plant_ss, pid, 1.0, fine_solver, Ts, x0, {0.0, 5.0});
  * @endcode
@@ -92,25 +92,25 @@ consteval size_t result_rows() {
 } // namespace detail
 
 /**
- * @brief Adapt a SISO `control(r, y)` controller for callables that want
+ * @brief Adapt a SISO `step(r, y)` controller for callables that want
  *        `u = f(y)` or `u = f(t, y)` (the older simulate* contracts).
  *
  * Holds a constant reference @p r. Models the usual digital-control SIL setup:
- * the same fixed-rate object that runs on target (`control(r, y)`) is exercised
+ * the same fixed-rate object that runs on target (`step(r, y)`) is exercised
  * on the host. Sample time is already baked into discrete controllers; @p Ts is
  * retained only as the plant ZOH period for the multi-rate simulator.
  *
- * @tparam C Controller type with `control(T, T) -> T` (e.g. PIDController)
+ * @tparam C Controller type with `step(T, T) -> T` (e.g. PIDController)
  * @tparam T Scalar type
  */
 template<typename C, typename T = double>
 struct SisoReferenceAdapter {
     C* c{};
     T  r{T{0}};
-    T  Ts{T{0}}; ///< Controller sample period (ZOH interval); not passed to control()
+    T  Ts{T{0}}; ///< Controller sample period (ZOH interval); not passed to step()
 
     [[nodiscard]] ColVec<1, T> operator()(const ColVec<1, T>& y) const {
-        return ColVec<1, T>{c->control(r, y[0])};
+        return ColVec<1, T>{c->step(r, y[0])};
     }
 
     [[nodiscard]] ColVec<1, T> operator()(T /*t*/, const ColVec<1, T>& y) const {
@@ -119,7 +119,7 @@ struct SisoReferenceAdapter {
 };
 
 /**
- * @brief Build a @ref SisoReferenceAdapter for a SISO `control(r,y)` controller
+ * @brief Build a @ref SisoReferenceAdapter for a SISO `step(r, y)` controller
  */
 template<typename C, typename T>
 [[nodiscard]] constexpr SisoReferenceAdapter<std::remove_reference_t<C>, T>
@@ -425,7 +425,7 @@ SimulationResult<NX, NU, NY, T> simulate_lti(
  * @brief SIL: continuous SISO LTI plant under a sampled SISO controller with constant reference
  *
  * Multi-rate digital-control pattern: controller ticks every @p Ts via
- * `control(r, y)` (ZOH on u); @p fine_solver integrates the plant between
+ * `step(r, y)` (ZOH on u); @p fine_solver integrates the plant between
  * ticks. Same controller object as on target — Design Is Deploy / gate-and-validate.
  *
  * The sampled measurement is y = Cx + D·u with the input held from the previous
@@ -433,7 +433,7 @@ SimulationResult<NX, NU, NY, T> simulate_lti(
  * that period's u.
  *
  * @param sys          Continuous plant (SISO: NU = NY = 1)
- * @param controller   Object with `control(T r, T y) -> T` (e.g. PIDController after discretize)
+ * @param controller   Object with `step(T r, T y) -> T` (e.g. PIDController after discretize)
  * @param r            Constant reference
  * @param fine_solver  Fixed-step solver for plant substeps
  * @param Ts           Controller sample period [s] (ZOH interval)
@@ -451,7 +451,7 @@ template<size_t NX, size_t NW, size_t NV, typename T, typename Controller, typen
     const damp::pair<T, T>&                t_span
 )
     requires requires(Controller& c, T a, T b) {
-        { c.control(a, b) } -> std::convertible_to<T>;
+        { c.step(a, b) } -> std::convertible_to<T>;
     }
 {
     auto plant = [&](T /*t*/, const ColVec<NX, T>& x, const ColVec<1, T>& u) -> ColVec<NX, T> {

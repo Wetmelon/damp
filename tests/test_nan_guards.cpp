@@ -214,7 +214,7 @@ TEST_SUITE("NaN guards") {
                 broken.*field = bad;
                 LeadLagController<T> c{broken};
                 CHECK_FALSE(c.valid());
-                CHECK(c.control(T{1}, T{0}) == T{0});
+                CHECK(c.step(T{1}, T{0}) == T{0});
             }
 
             auto pr = design::pr(design::PRSpec<T>{.Kp = T{1}, .Ki = T{10}, .w0 = T{314}}, static_cast<T>(1e-4));
@@ -261,7 +261,7 @@ TEST_SUITE("NaN guards") {
             REQUIRE(ADRCController<1, T>{good}.valid());
             ADRCController<1, T> c{broken};
             CHECK_FALSE(c.valid());
-            CHECK(c.control(T{1}, T{0}) == T{0});
+            CHECK(c.step(T{1}, T{0}) == T{0});
         }
     }
 

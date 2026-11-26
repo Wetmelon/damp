@@ -27,7 +27,7 @@ using namespace damp::sim;
 namespace {
 struct ConstController {
     double u{2.0};
-    double control(double, double) { return u; }
+    double step(double, double) { return u; }
     void   reset() {}
 };
 

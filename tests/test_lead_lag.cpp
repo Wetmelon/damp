@@ -165,7 +165,7 @@ TEST_SUITE("Lead-Lag Compensator") {
         };
 
         for (int i = 0; i < 5; ++i) {
-            double y = ctrl.control(1.0);
+            double y = ctrl.step(1.0);
             CHECK(y == doctest::Approx(expected[i]).epsilon(1e-12));
         }
     }
@@ -192,15 +192,15 @@ TEST_SUITE("Lead-Lag Compensator") {
         LeadLagController<double> ctrl(r);
 
         // Run some steps
-        (void)ctrl.control(1.0);
-        (void)ctrl.control(1.0);
-        (void)ctrl.control(1.0);
+        (void)ctrl.step(1.0);
+        (void)ctrl.step(1.0);
+        (void)ctrl.step(1.0);
 
         ctrl.reset();
 
         // After reset, first step should be same as fresh controller
         LeadLagController<double> fresh(r);
-        CHECK(ctrl.control(1.0) == doctest::Approx(fresh.control(1.0)).epsilon(1e-15));
+        CHECK(ctrl.step(1.0) == doctest::Approx(fresh.step(1.0)).epsilon(1e-15));
     }
 
     TEST_CASE("Online lead design matches design") {
@@ -264,7 +264,7 @@ TEST_SUITE("Lead-Lag Compensator") {
         constexpr auto rf = r.as<float>();
 
         LeadLagController<float> ctrl(rf);
-        float                    y = ctrl.control(1.0f);
+        float                    y = ctrl.step(1.0f);
         CHECK(y == doctest::Approx(1.320377f).epsilon(1e-4));
     }
 
@@ -278,8 +278,8 @@ TEST_SUITE("Lead-Lag Compensator") {
         const double refs[] = {1.0, 1.0, 0.5, -0.3, 0.0};
         const double meas[] = {0.0, 0.4, 0.6, 0.1, -0.2};
         for (int i = 0; i < 5; ++i) {
-            double ya = a.control(refs[i], meas[i]);
-            double yb = b.control(refs[i] - meas[i]);
+            double ya = a.step(refs[i], meas[i]);
+            double yb = b.step(refs[i] - meas[i]);
             CHECK(ya == doctest::Approx(yb).epsilon(1e-15));
         }
     }
@@ -305,10 +305,10 @@ TEST_SUITE("Lead-Lag Compensator") {
         static_assert(!bad.success);
         LeadLagController<double> ctrl(bad);
         CHECK_FALSE(ctrl.valid());
-        CHECK(ctrl.control(1.0) == doctest::Approx(0.0));
-        CHECK(ctrl.control(2.0, 1.0) == doctest::Approx(0.0));
+        CHECK(ctrl.step(1.0) == doctest::Approx(0.0));
+        CHECK(ctrl.step(2.0, 1.0) == doctest::Approx(0.0));
         ctrl.reset();
-        CHECK(ctrl.control(-3.0) == doctest::Approx(0.0));
+        CHECK(ctrl.step(-3.0) == doctest::Approx(0.0));
     }
 
     TEST_CASE("to_discrete_ss roundtrip (dimensions and sample time)") {
@@ -355,7 +355,7 @@ TEST_SUITE("Lead-Lag Compensator") {
 
         for (int i = 0; i < 5; ++i) {
             auto   y_ss = dss.C * x + dss.D * u;
-            double y_ctrl = ctrl.control(1.0);
+            double y_ctrl = ctrl.step(1.0);
             CHECK(y_ss(0, 0) == doctest::Approx(y_ctrl).epsilon(1e-10));
             x = dss.A * x + dss.B * u;
         }
@@ -365,10 +365,10 @@ TEST_SUITE("Lead-Lag Compensator") {
         // Ts = 0 has no Tustin map: the runtime used to emit the bare gain K on every tick.
         LeadLagController<double> lead_c{design::lead(0.5, 100.0, 0.0)};
         CHECK_FALSE(lead_c.valid());
-        CHECK(lead_c.control(1.0) == 0.0);
+        CHECK(lead_c.step(1.0) == 0.0);
         LeadLagController<double> lag_c{design::lag(10.0, 100.0, 0.0)};
         CHECK_FALSE(lag_c.valid());
-        CHECK(lag_c.control(1.0) == 0.0);
+        CHECK(lag_c.step(1.0) == 0.0);
 
         // Ts sits third in every member of the family.
         constexpr auto lag_d = design::lag(10.0, 100.0, 1e-3);
@@ -398,10 +398,10 @@ TEST_SUITE("Lead-Lag Compensator") {
         int                  untold_on_rail = 0;
         for (int k = 0; k < 6000; ++k) {
             const T e = (k < 3000) ? T{1} : static_cast<T>(-0.02);
-            const T ua = bounded.control(e);
-            const T ub = damp::clamp(outside.control(e), T{-1}, T{1});
+            const T ua = bounded.step(e);
+            const T ub = damp::clamp(outside.step(e), T{-1}, T{1});
             outside.back_calculate(ub);
-            const T uc = damp::clamp(untold.control(e), T{-1}, T{1});
+            const T uc = damp::clamp(untold.step(e), T{-1}, T{1});
             CHECK(damp::abs(ua - ub) <= T{64} * eps<T>()); // one tick, whichever stage clamps
             if (k < 3000) {
                 CHECK(ua == T{1});
@@ -419,6 +419,6 @@ TEST_SUITE("Lead-Lag Compensator") {
         res.u_lim = {.lower = 1.0, .upper = -1.0};
         LeadLagController<double> inert{res};
         CHECK_FALSE(inert.valid());
-        CHECK(inert.control(1.0) == 0.0);
+        CHECK(inert.step(1.0) == 0.0);
     }
 }

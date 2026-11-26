@@ -37,10 +37,10 @@
  * @code
  * // Two-rate cascade: outer every 10 base ticks, inner every tick
  * auto outer = [&](double, const ColVec<1>& y) {
- *     return ColVec<1>{outer_pi.control(r, y[0])};  // → i*
+ *     return ColVec<1>{outer_pi.step(r, y[0])};  // → i*
  * };
  * auto inner = [&](double, const ColVec<1>& r_i, const ColVec<1>& y) {
- *     return ColVec<1>{inner_pi.control(r_i[0], y[0])};  // → u
+ *     return ColVec<1>{inner_pi.step(r_i[0], y[0])};  // → u
  * };
  * RK4<2> rk4;
  * FixedStepSolver plant_solver(rk4, 1e-5);

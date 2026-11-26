@@ -15,7 +15,7 @@
  *
  * | Role                     | Per-tick shape                    | Examples                          |
  * |--------------------------|-----------------------------------|-----------------------------------|
- * | SisoController           | `u = control(r, y)`, `back_calculate(u_sat, u_ff)` | PID, ADRC, SMC, lead-lag, PR      |
+ * | SisoController           | `u = step(r, y)`, `back_calculate(u_sat, u_ff)` | PID, ADRC, SMC, lead-lag, PR      |
  * | FeedbackRuntime          | `update(m)`, `predict()`, `back_calculate(u)` | LQR, LQI, LQG, LQGI, OFLQG, MPC, OFMPC (lifecycle) |
  * | FeedbackLaw              | FeedbackRuntime + `control(r)`, `step(r, m)`, `track(u, r, m)` | LQI, LQGI, OFLQG, OFMPC, LQR/LQG/MPC with TrackedOutputs |
  * | StateEstimator           | `x̂ = step(y, u)`, `state()`       | FixedGainObserver (fixed gain), KalmanFilter (recursive), MHE, ESO |
@@ -24,11 +24,12 @@
  * |                          | `confidence()`                    |                                   |
  *
  * Naming convention the concepts encode: estimators say `predict` (time update)
- * and `update` (measurement update), controllers say `control`, and `step`
+ * and `update` (measurement update), an LQ or MPC law says `control` for its command, and `step`
  * combines one runtime's per-tick calls into one tick. `step(y, u)` is the fused
  * estimator tick (time update + measurement update + readout), so generic code
  * cannot silently skip the prediction step; the explicit `predict`/`update`
- * split remains available for multirate use. Sources and experiments say `step`.
+ * split remains available for multirate use. A SISO law (PID, PR, lead-lag, SMC, ADRC, …) has
+ * no split: `step(r, y)` is its whole tick. Sources and experiments say `step`.
  *
  * Every LQ and MPC runtime (LQR, LQI, LQG, LQGI, OFLQG, MPC, OFMPC) has the same
  * verbs. `update(m)` takes the measurement at sample k (the state itself without
@@ -65,13 +66,13 @@
 namespace damp {
 
 /**
- * @brief Scalar output-feedback controller: u = control(r, y), fixed rate.
+ * @brief Scalar output-feedback controller: u = step(r, y), fixed rate.
  *
  * One call is one complete tick. Sample time comes from the design result the
- * runtime was built from, never a constructor or control() argument; this is the
+ * runtime was built from, never a constructor or step() argument; this is the
  * common denominator that dt-baked laws can satisfy, so it is the concept contract.
  *
- * A 3-arg variable-rate control(r, y, Ts) overload stays *outside* the concept
+ * A 3-arg variable-rate step(r, y, Ts) overload stays *outside* the concept
  * and is allowed only where the sample time enters the law linearly at runtime
  * (ContinuousPID: `I += Ki*e*Ts` with I the integral term, `deriv = Δ/Ts`), so
  * a measured dt is exact and free. Canonical fixed-rate controllers bake Ts at
@@ -87,7 +88,7 @@ namespace damp {
  */
 template<typename C, typename T>
 concept SisoController = damp::is_floating_point_v<T> && requires(C c, T r, T y, T u_sat, T u_ff) {
-    { c.control(r, y) } -> damp::convertible_to<T>;
+    { c.step(r, y) } -> damp::convertible_to<T>;
     c.back_calculate(u_sat, u_ff);
     c.reset();
 };

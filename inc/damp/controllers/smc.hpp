@@ -168,7 +168,7 @@ template<typename T = double>
  * constexpr auto gains = design::smc(20.0f, 5.0f, 1.0f, 1e-3f, 0.05f);
  * static constinit SMCController ctrl{gains};
  * // In the loop:
- * float u = ctrl.control(r, y);
+ * float u = ctrl.step(r, y);
  * @endcode
  *
  * @tparam T Scalar type (default: float)
@@ -191,8 +191,8 @@ class SMCController {
     T    error_prev{};  ///< Previous error, for the backward-difference rate ė.
     T    Ts_{};         ///< [s] Sample time, from the design result.
     T    phi_{};        ///< Boundary-layer thickness, from the design result.
-    bool first_{true};  ///< Seed error_prev on the first control() tick (no derivative kick).
-    bool valid_{false}; ///< From the design's success flag; gates control().
+    bool first_{true};  ///< Seed error_prev on the first step() tick (no derivative kick).
+    bool valid_{false}; ///< From the design's success flag; gates step().
 
 public:
     Bounds<1, T> u_lim{}; ///< Limits on the command (the result's; default unbounded)
@@ -236,7 +236,7 @@ public:
      * @param y   Measurement (plant output).
      * @return Control command `u`, clamped into u_lim.
      */
-    [[nodiscard]] constexpr T control(T r, T y) {
+    [[nodiscard]] constexpr T step(T r, T y) {
         // A failed or continuous design (no b0, no sampled rate): emit no correction, hold the state.
         if (!valid_) {
             return T{0};

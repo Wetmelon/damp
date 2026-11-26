@@ -46,13 +46,13 @@ TEST_SUITE("PID Mode Control") {
 
         pi.disable(2.5f);
         CHECK(!pi.is_enabled());
-        CHECK(pi.control(1.0f, 0.0f) == doctest::Approx(2.5f));
+        CHECK(pi.step(1.0f, 0.0f) == doctest::Approx(2.5f));
 
         pi.disable(100.0f);
-        CHECK(pi.control(1.0f, 0.0f) == doctest::Approx(5.0f));
+        CHECK(pi.step(1.0f, 0.0f) == doctest::Approx(5.0f));
 
         pi.disable(-100.0f);
-        CHECK(pi.control(1.0f, 0.0f) == doctest::Approx(-5.0f));
+        CHECK(pi.step(1.0f, 0.0f) == doctest::Approx(-5.0f));
     }
 
     TEST_CASE("PI: enable after disable produces bumpless re-engagement") {
@@ -60,19 +60,19 @@ TEST_SUITE("PID Mode Control") {
         PIController<float> pi{design::pid(2.0f, 5.0f, 0.0f).discretize(Ts)};
 
         for (int i = 0; i < 20; ++i) {
-            (void)pi.control(1.0f, 0.5f);
+            (void)pi.step(1.0f, 0.5f);
         }
         REQUIRE(pi.integral != doctest::Approx(0.0f));
 
         const float u_track = 3.7f;
         pi.disable(u_track);
         for (int i = 0; i < 10; ++i) {
-            const float u = pi.control(1.0f, 0.5f);
+            const float u = pi.step(1.0f, 0.5f);
             CHECK(u == doctest::Approx(u_track));
         }
 
         pi.enable();
-        const float u_after = pi.control(1.0f, 0.5f);
+        const float u_after = pi.step(1.0f, 0.5f);
         CHECK(u_after == doctest::Approx(u_track).epsilon(1e-5f));
     }
 
@@ -82,7 +82,7 @@ TEST_SUITE("PID Mode Control") {
 
         for (int i = 0; i < 20; ++i) {
             const float y = 0.5f + (0.01f * static_cast<float>(i));
-            (void)pid.control(1.0f, y);
+            (void)pid.step(1.0f, y);
         }
 
         const float u_track = -1.2f;
@@ -90,12 +90,12 @@ TEST_SUITE("PID Mode Control") {
         const float y_hold = 0.7f;
         pid.disable(u_track);
         for (int i = 0; i < 20; ++i) {
-            const float u = pid.control(r_hold, y_hold);
+            const float u = pid.step(r_hold, y_hold);
             CHECK(u == doctest::Approx(u_track));
         }
 
         pid.enable();
-        const float u_after = pid.control(r_hold, y_hold);
+        const float u_after = pid.step(r_hold, y_hold);
         CHECK(u_after == doctest::Approx(u_track).epsilon(1e-5f));
     }
 
@@ -111,16 +111,16 @@ TEST_SUITE("PID Mode Control") {
         double y = 0.0;
         for (int i = 0; i < 20; ++i) {
             y = 0.5 + (0.02 * static_cast<double>(i)); // moving y keeps D nonzero
-            CHECK(pid.control(1.0, y) == doctest::Approx(-1.2));
-            CHECK(cont.control(1.0, y, Ts) == doctest::Approx(-1.2));
+            CHECK(pid.step(1.0, y) == doctest::Approx(-1.2));
+            CHECK(cont.step(1.0, y, Ts) == doctest::Approx(-1.2));
         }
         REQUIRE(pid.deriv != doctest::Approx(0.0));
 
         // Same (r, y) as the last tracking tick: the first Auto tick must emit u_track.
         pid.enable();
         cont.enable();
-        CHECK(pid.control(1.0, y) == doctest::Approx(-1.2).epsilon(1e-12));
-        CHECK(cont.control(1.0, y, Ts) == doctest::Approx(-1.2).epsilon(1e-12));
+        CHECK(pid.step(1.0, y) == doctest::Approx(-1.2).epsilon(1e-12));
+        CHECK(cont.step(1.0, y, Ts) == doctest::Approx(-1.2).epsilon(1e-12));
     }
 
     TEST_CASE("PD: P + filtered D, Tracking holds u_track") {
@@ -129,12 +129,12 @@ TEST_SUITE("PID Mode Control") {
         gains.Tf = 0.02;
         PDController<double> pd{gains.discretize(Ts)};
 
-        CHECK(pd.control(1.0, 0.0) == doctest::Approx(2.0)); // first tick: no derivative kick
-        const double u = pd.control(1.0, 0.1);               // y moved 0.1: D = d_b·(−0.1)
+        CHECK(pd.step(1.0, 0.0) == doctest::Approx(2.0)); // first tick: no derivative kick
+        const double u = pd.step(1.0, 0.1);               // y moved 0.1: D = d_b·(−0.1)
         CHECK(u == doctest::Approx((2.0 * 0.9) - ((0.1 / (Ts + 0.02)) * 0.1)));
 
         pd.disable(-3.0);
-        CHECK(pd.control(1.0, 0.1) == doctest::Approx(-3.0));
+        CHECK(pd.step(1.0, 0.1) == doctest::Approx(-3.0));
     }
 
     TEST_CASE("each mode stores only its own terms") {
@@ -158,11 +158,11 @@ TEST_SUITE("PID Mode Control") {
                                      .discretize(Ts)};
 
         pid.disable(100.0f);
-        (void)pid.control(0.0f, 0.0f);
+        (void)pid.step(0.0f, 0.0f);
         CHECK(pid.integral == doctest::Approx(2.0f));
 
         pid.disable(-100.0f);
-        (void)pid.control(0.0f, 0.0f);
+        (void)pid.step(0.0f, 0.0f);
         CHECK(pid.integral == doctest::Approx(-2.0f));
     }
 
@@ -178,12 +178,12 @@ TEST_SUITE("PID Mode Control") {
         p.disable(4.2f);
         CHECK(!p.is_enabled());
 
-        CHECK(p.control(0.0f, 0.0f) == doctest::Approx(4.2f));
-        CHECK(p.control(1.0f, 0.5f) == doctest::Approx(4.2f));
+        CHECK(p.step(0.0f, 0.0f) == doctest::Approx(4.2f));
+        CHECK(p.step(1.0f, 0.5f) == doctest::Approx(4.2f));
 
         p.enable();
         CHECK(p.is_enabled());
-        CHECK(p.control(1.0f, 0.0f) == doctest::Approx(2.0f));
+        CHECK(p.step(1.0f, 0.0f) == doctest::Approx(2.0f));
     }
 
     TEST_CASE("reset preserves the runtime mode") {
@@ -208,35 +208,35 @@ TEST_SUITE("PID Mode Control") {
                                    .discretize(Ts)};
 
         pi.disable(0.5f);
-        (void)pi.control(2.0f, 0.0f);
+        (void)pi.step(2.0f, 0.0f);
         pi.enable();
-        const float u_first = pi.control(2.0f, 0.0f);
+        const float u_first = pi.step(2.0f, 0.0f);
         CHECK(u_first == doctest::Approx(0.5f).epsilon(1e-5f));
 
         for (int i = 0; i < 50; ++i) {
-            (void)pi.control(5.0f, 0.0f);
+            (void)pi.step(5.0f, 0.0f);
         }
-        const float u_saturated = pi.control(5.0f, 0.0f);
+        const float u_saturated = pi.step(5.0f, 0.0f);
         CHECK(u_saturated == doctest::Approx(1.0f));
     }
 
     TEST_CASE("ContinuousPID: non-positive Ts holds state and returns the current command") {
         ContinuousPID<double> pid{design::pid(2.0, 5.0, 0.1)};
-        (void)pid.control(1.0, 0.0, 0.01);
+        (void)pid.step(1.0, 0.0, 0.01);
         const double integ = pid.integral;
 
-        const double u0 = pid.control(1.0, 0.0, 0.0);
+        const double u0 = pid.step(1.0, 0.0, 0.0);
         CHECK(pid.integral == doctest::Approx(integ));
         // Integral state is the term (already includes Ki history)
         CHECK(u0 == doctest::Approx((2.0 * 1.0) + integ));
 
-        (void)pid.control(1.0, 0.0, -0.5);
+        (void)pid.step(1.0, 0.0, -0.5);
         CHECK(pid.integral == doctest::Approx(integ));
 
         ContinuousPID<float> pi{design::pid(1.0f, 1.0f, 0.0f)};
-        (void)pi.control(1.0f, 0.0f, 0.01f);
+        (void)pi.step(1.0f, 0.0f, 0.01f);
         const float pinteg = pi.integral;
-        (void)pi.control(1.0f, 0.0f, 0.0f);
+        (void)pi.step(1.0f, 0.0f, 0.0f);
         CHECK(pi.integral == doctest::Approx(pinteg));
     }
 
@@ -245,19 +245,19 @@ TEST_SUITE("PID Mode Control") {
         // back_calculate with Ki·Ts < 0, winding the integral further into the limit.
         ContinuousPID<double> pid{design::PIDGains<double>{.Kp = 1.0, .Ki = 10.0, .u_lim = {.lower = -1.0, .upper = 1.0}, .Kbc = 1.0}};
         for (int k = 0; k < 5; ++k) {
-            (void)pid.control(0.5, 0.0, 0.01);
+            (void)pid.step(0.5, 0.0, 0.01);
         }
         const double integ = pid.integral;
-        (void)pid.control(0.5, 0.0, -0.01);
+        (void)pid.step(0.5, 0.0, -0.01);
         pid.back_calculate(pid.last_command() - 0.5);
         CHECK(pid.integral == integ);
 
         const double nan = std::numeric_limits<double>::quiet_NaN();
-        const double u = pid.control(0.5, 0.0, nan);
+        const double u = pid.step(0.5, 0.0, nan);
         CHECK(std::isfinite(u));
         CHECK(std::isfinite(pid.integral));
         CHECK(std::isfinite(pid.deriv));
-        CHECK(std::isfinite(pid.control(0.5, 0.0, 0.01)));
+        CHECK(std::isfinite(pid.step(0.5, 0.0, 0.01)));
     }
 
     TEST_CASE("discretize refuses a negative Tf and non-finite gains") {
@@ -280,7 +280,7 @@ TEST_SUITE("PID Mode Control") {
     TEST_CASE("back_calculate takes back the last increment when Kbc == 0, bleeds when Kbc > 0") {
         constexpr double      Ts = 0.01;
         PIDController<double> pid{design::pid(1.0, 1.0, 0.0).discretize(Ts)};
-        (void)pid.control(1.0, 0.0);
+        (void)pid.step(1.0, 0.0);
         CHECK(pid.integral == doctest::Approx(0.01));
         pid.back_calculate(0.5); // Kbc == 0: the clamp cut 0.51 off, more than the tick added
         CHECK(pid.integral == 0.0);
@@ -288,7 +288,7 @@ TEST_SUITE("PID Mode Control") {
         CHECK(pid.integral == 0.0);
 
         PIDController<double> pid2{design::PIDGains{.Kp = 1.0, .Ki = 1.0, .Kbc = 0.5}.discretize(Ts)};
-        (void)pid2.control(1.0, 0.0);
+        (void)pid2.step(1.0, 0.0);
         const double before = pid2.integral;
         pid2.back_calculate(0.5); // u_sat below the last command → integral down
         CHECK(pid2.integral < before);
@@ -301,7 +301,7 @@ TEST_SUITE("PID Mode Control") {
         // static constinit PIController<double> bad{design::DiscretePIDGains<double>{.Kp = 1.0, .Ki = 0.01, .Kbc = -1.0}}; // ill-formed
         PIController<double> direct{design::DiscretePIDGains<double>{.Kp = 1.0, .Ki = 0.01, .Kbc = -1.0}};
         CHECK_FALSE(direct.valid());
-        CHECK(direct.control(1.0, 0.0) == 0.0);
+        CHECK(direct.step(1.0, 0.0) == 0.0);
         constexpr auto bad = design::PIDGains{.Kp = 1.0, .Ki = 2.0, .Kbc = -1.0}.discretize(0.01);
         static_assert(!bad.success);
         CHECK(bad.status == design::DesignStatus::invalid_parameter);
@@ -341,16 +341,16 @@ TEST_SUITE("PID Mode Control") {
         int    clamped = 0;
         for (int k = 0; k < 200; ++k) {
             const double r = (k < 100) ? 2.0 : -2.0;
-            const double u = law.control(r, y);
-            const double u_ref = ref.control(r, y);
+            const double u = law.step(r, y);
+            const double u_ref = ref.step(r, y);
             const double u_sat = damp::clamp(u + u_ff, -u_lim, u_lim);
             if (u_sat != u + u_ff) {
                 ++clamped;
                 law.back_calculate(u_sat, u_ff);
                 damp::detail::pid_wind_back(ref, ref.Ki, u_sat, u_ref + u_ff);
 
-                const double cu = claw.control(r, y, Ts);
-                const double cu_ref = cref.control(r, y, Ts);
+                const double cu = claw.step(r, y, Ts);
+                const double cu_ref = cref.step(r, y, Ts);
                 const double cu_sat = damp::clamp(cu + u_ff, -u_lim, u_lim);
                 claw.back_calculate(cu_sat, u_ff);
                 damp::detail::pid_wind_back(cref, cref.Ki * Ts, cu_sat, cu_ref + u_ff);
@@ -366,9 +366,9 @@ TEST_SUITE("PID Mode Control") {
         constexpr double      Ts = 0.01;
         PIDController<double> d{design::pid(1.5, 2.0, 0.3).discretize(Ts)};
         d.disable(0.4);
-        (void)d.control(1.0, 0.2);
+        (void)d.step(1.0, 0.2);
         d.enable();
-        (void)d.control(1.0, 0.25);
+        (void)d.step(1.0, 0.25);
 
         PIDController<float> f(d);
         CHECK(f.Kp == doctest::Approx(static_cast<float>(d.Kp)));
@@ -406,8 +406,8 @@ TEST_SUITE("PID Mode Control") {
         for (int k = 0; k < 80; ++k) {
             const double r = 1.0;
             const double y = 0.01 * static_cast<double>(k);
-            const double ud = disc.control(r, y);
-            const double uc = cont.control(r, y, Ts);
+            const double ud = disc.step(r, y);
+            const double uc = cont.step(r, y, Ts);
             CHECK(ud == doctest::Approx(uc).epsilon(1e-12));
         }
     }
@@ -416,15 +416,15 @@ TEST_SUITE("PID Mode Control") {
         constexpr double Ts = 0.01;
 
         PIDController<double> d{design::pid(0.0, 0.0, 1.0).discretize(Ts)};
-        CHECK(d.control(0.0, 1.0) == doctest::Approx(0.0));    // seeded: no kick
-        CHECK(d.control(0.0, 2.0) == doctest::Approx(-100.0)); // Kd*(-1)/Ts
+        CHECK(d.step(0.0, 1.0) == doctest::Approx(0.0));    // seeded: no kick
+        CHECK(d.step(0.0, 2.0) == doctest::Approx(-100.0)); // Kd*(-1)/Ts
 
         auto step = [&](double Tf) {
             PIDController<double> c{
                 design::PIDGains{.Kd = 1.0, .Tf = Tf}.discretize(Ts)
             };
-            (void)c.control(0.0, 0.0);
-            return c.control(0.0, 1.0);
+            (void)c.step(0.0, 0.0);
+            return c.step(0.0, 1.0);
         };
         CHECK(std::abs(step(0.1)) < std::abs(step(0.0)));
     }
@@ -454,13 +454,13 @@ TEST_SUITE("PID Mode Control") {
         constexpr double     Ts = 0.01;
         PIController<double> pi{design::pid(0.0, 10.0, 0.0).discretize(Ts)};
         for (int k = 0; k < 50; ++k) {
-            (void)pi.control(1.0, 0.0); // e = 1 each tick
+            (void)pi.step(1.0, 0.0); // e = 1 each tick
         }
         const double I_before = pi.integral;
         REQUIRE(I_before != doctest::Approx(0.0));
-        const double u_before = pi.control(0.0, 0.0); // e = 0: u = I (Kp=0)
+        const double u_before = pi.step(0.0, 0.0); // e = 0: u = I (Kp=0)
         pi.Ki *= 2.0;
-        const double u_after = pi.control(0.0, 0.0);
+        const double u_after = pi.step(0.0, 0.0);
         CHECK(pi.integral == doctest::Approx(I_before));
         CHECK(u_after == doctest::Approx(u_before));
         CHECK(u_after == doctest::Approx(I_before));
@@ -495,7 +495,7 @@ TEST_SUITE("PID Mode Control") {
         static_assert(gains.integral_lim.upper(0) == std::numeric_limits<double>::max());
         CHECK(pi.u_lim.lower(0) == -12.0f);
         CHECK(pi.u_lim.upper(0) == 12.0f);
-        CHECK(pi.control(100.0f, 0.0f) == doctest::Approx(12.0f));
+        CHECK(pi.step(100.0f, 0.0f) == doctest::Approx(12.0f));
     }
 
     TEST_CASE("PID aliases deduce the scalar and take their mode from the alias") {
@@ -525,11 +525,11 @@ TEST_SUITE("PID Mode Control") {
             const double theta = wrap_pi(3.0 + (rate * static_cast<double>(k))); // sensor wraps +π → −π at k = 15
             const double r = wrap_pi(theta + lead);                              // reference wraps first, at k = 10
             const double y = turn * unwrap.update(theta / turn).value();
-            const double u = pid.control(y + wrap_pi(r - y), y);
+            const double u = pid.step(y + wrap_pi(r - y), y);
             CHECK(u - pid.integral - pid.deriv == doctest::Approx(gains.Kp * lead)); // P on the short-way error
             d_max = damp::max(d_max, damp::abs(pid.deriv));
 
-            (void)wrapped_y.control(theta + wrap_pi(r - theta), theta);
+            (void)wrapped_y.step(theta + wrap_pi(r - theta), theta);
             wrapped_d_max = damp::max(wrapped_d_max, damp::abs(wrapped_y.deriv));
         }
         CHECK(pid.integral == doctest::Approx(40.0 * gains.Ki * lead));          // I took +lead every tick
@@ -547,28 +547,28 @@ TEST_SUITE("PID limits") {
         //! rail left I = 500 and the output stayed on the rail for 99.6 s after the error reversed.
         PIController<T> pi{design::PIDGains<double>{.Kp = 1.0, .Ki = 10.0, .u_lim = {.lower = -1.0, .upper = 1.0}}.discretize(kTs).template as<T>()};
         for (int k = 0; k < 1000; ++k) {
-            CHECK(pi.control(T{5}, T{0}) == T{1});
+            CHECK(pi.step(T{5}, T{0}) == T{1});
         }
-        CHECK(pi.integral == T{0});              // P alone is past the limit: nothing of I is needed
-        CHECK(pi.control(T{0.5}, T{0}) < T{1});  // off the rail on the first tick the error allows it
-        CHECK(pi.control(T{-5}, T{0}) == T{-1}); // and onto the other
-        CHECK(pi.integral >= T{0});              // without the integral having gone the wrong way
+        CHECK(pi.integral == T{0});           // P alone is past the limit: nothing of I is needed
+        CHECK(pi.step(T{0.5}, T{0}) < T{1});  // off the rail on the first tick the error allows it
+        CHECK(pi.step(T{-5}, T{0}) == T{-1}); // and onto the other
+        CHECK(pi.integral >= T{0});           // without the integral having gone the wrong way
     }
 
     TEST_CASE_TEMPLATE("the integral stops where the output meets the limit", T, float, double) {
         PIController<T> pi{design::PIDGains<double>{.Kp = 1.0, .Ki = 10.0, .u_lim = {.lower = -1.0, .upper = 1.0}}.discretize(kTs).template as<T>()};
         T               u{0};
         for (int k = 0; k < 200; ++k) {
-            u = pi.control(T{0.5}, T{0}); // P = 0.5, I ramps 0.05 a tick towards 0.5
+            u = pi.step(T{0.5}, T{0}); // P = 0.5, I ramps 0.05 a tick towards 0.5
         }
         CHECK(u == T{1});
         CHECK(damp::abs(pi.integral - T{0.5}) <= T{8} * eps<T>());
         //! A step of the P term through the limit does not reset what the integral holds.
-        (void)pi.control(T{3}, T{0});
+        (void)pi.step(T{3}, T{0});
         CHECK(damp::abs(pi.integral - T{0.5}) <= T{8} * eps<T>());
         //! Nor does integral_lim stop applying.
         pi.integral_lim = {.lower = T{-0.25}, .upper = T{0.25}};
-        (void)pi.control(static_cast<T>(0.1), T{0});
+        (void)pi.step(static_cast<T>(0.1), T{0});
         CHECK(pi.integral == T{0.25});
     }
 
@@ -586,10 +586,10 @@ TEST_SUITE("PID limits") {
         int              saturated = 0;
         for (int k = 0; k < 600; ++k) {
             const T r = (k < 300) ? T{1} : T{-0.5};
-            const T ua = bounded.control(r, ya);
-            const T ub = damp::clamp(outside.control(r, yb), T{-1}, T{1});
+            const T ua = bounded.step(r, ya);
+            const T ub = damp::clamp(outside.step(r, yb), T{-1}, T{1});
             outside.back_calculate(ub);
-            const T uc = measured.control(r, yc, static_cast<T>(kTs));
+            const T uc = measured.step(r, yc, static_cast<T>(kTs));
             saturated += (damp::abs(ua) >= T{1}) ? 1 : 0;
             CHECK(damp::abs(ua - ub) <= T{64} * eps<T>());
             CHECK(damp::abs(ua - uc) <= T{64} * eps<T>());
@@ -606,7 +606,7 @@ TEST_SUITE("PID limits") {
         //! the integral changed sign and grew ninefold each tick, to ±3.4e38.
         PIController<float> pi{design::PIDGains<double>{.Kp = 1.0, .Ki = 10.0, .u_lim = {.lower = -1.0, .upper = 1.0}, .Kbc = 0.01}.discretize(kTs).as<float>()};
         for (int k = 0; k < 200; ++k) {
-            CHECK(pi.control(5.0F, 0.0F) == 1.0F);
+            CHECK(pi.step(5.0F, 0.0F) == 1.0F);
             CHECK(damp::abs(pi.integral) <= 5.0F); // I tracks the limit less P: −4, each tick
         }
     }
@@ -629,12 +629,12 @@ TEST_SUITE("PID limits") {
         CHECK_FALSE(cpid.valid());
         CHECK_FALSE(pd_of_pi.valid());
         CHECK_FALSE(failed.valid());
-        CHECK(pid.control(1.0, 0.0) == 0.0);
-        CHECK(pi.control(1.0, 0.0) == 0.0);
-        CHECK(pd.control(1.0, 0.0) == 0.0);
-        CHECK(p.control(1.0, 0.0) == 0.0);
-        CHECK(cpid.control(1.0, 0.0, 0.01) == 0.0);
-        CHECK(failed.control(1.0, 0.0) == 0.0);
+        CHECK(pid.step(1.0, 0.0) == 0.0);
+        CHECK(pi.step(1.0, 0.0) == 0.0);
+        CHECK(pd.step(1.0, 0.0) == 0.0);
+        CHECK(p.step(1.0, 0.0) == 0.0);
+        CHECK(cpid.step(1.0, 0.0, 0.01) == 0.0);
+        CHECK(failed.step(1.0, 0.0) == 0.0);
         CHECK(PController<double>{design::DiscretePIDGains<double>{.Kp = 1.0}}.valid());
         CHECK(PIDController<double>{}.valid()); // a hand-built law: zero gains, valid
     }

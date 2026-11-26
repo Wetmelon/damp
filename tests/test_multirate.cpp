@@ -200,7 +200,7 @@ TEST_SUITE("Multi-rate harness") {
 
         auto outer = [&](double, const ColVec<1>&) -> ColVec<1> { return ColVec<1>{r_cmd}; };
         auto inner = [&](double, const ColVec<1>& r_i, const ColVec<1>& y) -> ColVec<1> {
-            return ColVec<1>{inner_pi.control(r_i[0], y[0])};
+            return ColVec<1>{inner_pi.step(r_i[0], y[0])};
         };
 
         RK4<1>          rk4;
@@ -238,10 +238,10 @@ TEST_SUITE("Multi-rate harness") {
         PIController<double> inner_pi{inner_d};
 
         auto outer = [&](double, const ColVec<2>& y) -> ColVec<1> {
-            return ColVec<1>{outer_pi.control(p_ref, y[0])}; // v* from position
+            return ColVec<1>{outer_pi.step(p_ref, y[0])}; // v* from position
         };
         auto inner = [&](double, const ColVec<1>& r_v, const ColVec<2>& y) -> ColVec<1> {
-            return ColVec<1>{inner_pi.control(r_v[0], y[1])}; // u from velocity
+            return ColVec<1>{inner_pi.step(r_v[0], y[1])}; // u from velocity
         };
 
         RK4<2>          rk4;

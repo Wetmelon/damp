@@ -38,7 +38,7 @@
  * @brief Sampled-data runtime controllers (PID, PR, LQR family, ADRC, SMC, Smith, …).
  *
  * Typically constructed from `design::` Results (or pack maps) via `.as<float>()`
- * and driven with `.control()` in the ISR or RTOS loop.
+ * and driven with `.step(…)` in the ISR or RTOS loop.
  */
 
 /**

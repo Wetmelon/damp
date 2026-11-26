@@ -75,7 +75,7 @@ struct FopdtPlant {
 struct ProportionalPrimary {
     double k{1.0};
 
-    [[nodiscard]] constexpr double control(double r, double y) {
+    [[nodiscard]] constexpr double step(double r, double y) {
         return k * (r - y);
     }
 
@@ -96,10 +96,10 @@ struct LegacySmith {
 
     LegacySmith(const Primary& c, double a_, double b_, size_t d) : primary(c), a(a_), b(b_) { delay.init(d); }
 
-    double control(double r, double y) {
+    double step(double r, double y) {
         const double y_hat = x;
         const double y_delayed = delay(y_hat);
-        const double u = primary.control(r, y + y_hat - y_delayed);
+        const double u = primary.step(r, y + y_hat - y_delayed);
         x = (a * x) + (b * u);
         return u;
     }
@@ -123,8 +123,8 @@ double max_command_gap(const Primary& c, double K, double tau, double L, double 
     double gap = 0.0;
     for (size_t k = 0; k < N; ++k) {
         const double r = (k < N / 2) ? 1.0 : -0.5;
-        const double u_new = rebuilt.control(r, y_new);
-        const double u_old = legacy.control(r, y_old);
+        const double u_new = rebuilt.step(r, y_new);
+        const double u_old = legacy.step(r, y_old);
         gap = std::max(gap, std::abs(u_new - u_old));
         y_new = plant_new.step(u_new);
         y_old = plant_old.step(u_old);
@@ -213,8 +213,8 @@ TEST_SUITE("Smith Predictor") {
         double           y = 0.0;
         double           y_bare = 0.0;
         for (size_t k = 0; k < N; ++k) {
-            const double u = smith.control(r, y);
-            const double u_b = bare.control(r, y_bare);
+            const double u = smith.step(r, y);
+            const double u_b = bare.step(r, y_bare);
             max_diff = std::max(max_diff, std::abs(u - u_b));
             y = plant.step(u);
             y_bare = plant_bare.step(u_b);
@@ -259,8 +259,8 @@ TEST_SUITE("Smith Predictor") {
         double           peak_abs_e_b = 0.0;
 
         for (size_t k = 0; k < N; ++k) {
-            const double u_s = smith.control(r, y_s);
-            const double u_b = bare.control(r, y_b);
+            const double u_s = smith.step(r, y_s);
+            const double u_b = bare.step(r, y_b);
             y_s = plant_s.step(u_s);
             y_b = plant_b.step(u_b);
             iae_s += std::abs(r - y_s) * Ts;
@@ -293,7 +293,7 @@ TEST_SUITE("Smith Predictor") {
         FirstOrderPlant plant{.a = sp.a, .b = sp.b};
         // Drive some state
         for (int i = 0; i < 30; ++i) {
-            const double u = ctrl.control(1.0, y);
+            const double u = ctrl.step(1.0, y);
             y = plant.step(u);
         }
         CHECK(std::abs(ctrl.model_output()) > 1e-6);
@@ -301,20 +301,20 @@ TEST_SUITE("Smith Predictor") {
         ctrl.reset();
         CHECK(ctrl.model_output() == doctest::Approx(0.0));
         // First post-reset command with y=0,r=0 should be ~0 (no integral yet)
-        CHECK(ctrl.control(0.0, 0.0) == doctest::Approx(0.0));
+        CHECK(ctrl.step(0.0, 0.0) == doctest::Approx(0.0));
     }
 
     TEST_CASE("invalid design or MaxDelay overflow yields zero control") {
         SmithPredictor<8, double> bad(design::smith_predictor_from_fopdt(0.0, 1.0, 0.0, 0.1));
         CHECK_FALSE(bad.valid());
-        CHECK(bad.control(1.0, 0.0) == doctest::Approx(0.0));
+        CHECK(bad.step(1.0, 0.0) == doctest::Approx(0.0));
 
         // delay_samples = 50 > MaxDelay=8
         constexpr auto long_delay = design::smith_predictor_from_fopdt(1.0, 1.0, 5.0, 0.1, 1.0);
         static_assert(long_delay.delay_samples == 50);
         SmithPredictor<8, double> too_short(long_delay);
         CHECK_FALSE(too_short.valid());
-        CHECK(too_short.control(1.0, 0.0) == doctest::Approx(0.0));
+        CHECK(too_short.step(1.0, 0.0) == doctest::Approx(0.0));
 
         // MaxDelay is a capacity in whole samples: d = MaxDelay fits, d = MaxDelay + 1 does not.
         constexpr auto d_eq = design::smith_predictor_from_fopdt(1.0, 1.0, 0.8, 0.1, 1.0);
@@ -365,8 +365,8 @@ TEST_SUITE("Smith Predictor") {
         double           y_bare = 0.0;
         double           max_diff = 0.0;
         for (size_t k = 0; k < 200; ++k) {
-            const double u = smith.control(r, y);
-            const double u_b = bare.control(r, y_bare);
+            const double u = smith.step(r, y);
+            const double u_b = bare.step(r, y_bare);
             max_diff = std::max(max_diff, std::abs(u - u_b));
             y = plant.step(u);
             y_bare = plant_bare.step(u_b);
@@ -386,7 +386,7 @@ TEST_SUITE("Smith Predictor") {
         REQUIRE(sp.success);
         SmithPredictor<8, double, PIDController<double>> smith(sp);
         REQUIRE(smith.valid());
-        CHECK(std::isfinite(smith.control(1.0, 0.0)));
+        CHECK(std::isfinite(smith.step(1.0, 0.0)));
     }
 
     TEST_CASE("as<float> converting ctor preserves model coeffs") {
@@ -409,8 +409,8 @@ TEST_SUITE("Smith Predictor") {
         // The runtime ticks under constant evaluation too (the commands in flight are a fixed array).
         constexpr double u2 = [] {
             SmithPredictor<8, double> c(design::smith_predictor_from_fopdt(1.0, 1.0, 0.2, 0.05, 0.5));
-            (void)c.control(1.0, 0.0);
-            return c.control(1.0, 0.0);
+            (void)c.step(1.0, 0.0);
+            return c.step(1.0, 0.0);
         }();
         static_assert(u2 > 0.0);
     }
@@ -477,9 +477,9 @@ TEST_SUITE("Smith Predictor") {
         double y_u = 0.0;
         for (int k = 0; k < 1000; ++k) {
             const double r = (k < 600) ? 2.0 : 0.5; // out of the rail's reach, then within it
-            const double u_t = damp::min(told.control(r, y_t), rail);
+            const double u_t = damp::min(told.step(r, y_t), rail);
             told.back_calculate(u_t);
-            const double u_u = damp::min(untold.control(r, y_u), rail);
+            const double u_u = damp::min(untold.step(r, y_u), rail);
             y_t = plant_t.step(u_t);
             y_u = plant_u.step(u_u);
             if (k == 599) {

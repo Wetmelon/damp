@@ -29,6 +29,7 @@ and [known limitations](docs/known_limitations.md)).
 
 ### Changed
 
+- Breaking: a SISO law's tick is `step(r, y)`, not `control(r, y)` (PID, PR, lead-lag, SMC, STSMC, ADRC, Smith, repetitive, harmonic suppression, ESC, `Cascade`, `SwitchedController`), so `control` means one thing everywhere: an LQ or MPC law's command from what it already holds. `SisoController` asks for `step`, and STSMC's `control_sliding(s)` is `step_sliding(s)`.
 - Breaking: `SwitchedController::last_u()` is `last_command()`, the name `Cascade` and the laws give it, and `PRController` has one too.
 - `StateFeedback` (`controllers/state_feedback_runtime.hpp`) is the one runtime of every LQ design: `StateFeedback law{res}` deduces from any of them, with the members its design carries, and `LQR`, `LQI`, `LQG`, `LQGI` and `OFLQG` are aliases of it that refuse another kind's design, so `LQG law{res}` and the spelled-out types are as before. Every law with a target now shows it as `target` (an LQR or LQG with `TrackedOutputs`, any law with a `MeasuredDisturbance`), and an LQR with an `InputDelay` has `last_command()` and `applied()`.
 - `OFMPC` is an alias of `MPC`, one runtime over its estimator: `MPC law{res}` runs every `design::mpc` design, now also one with a `KalmanNoise` and no disturbance spec (a filter on the outputs, a regulator or the QP about the target of r), which no runtime took, and `OFMPC law{res}` deduces the same law from an offset-free design and refuses any other. Breaking: a measured-state `MPC` loses `state_estimate()`, which only a filter has, and `MPC::Result`.

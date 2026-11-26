@@ -42,8 +42,8 @@ TEST_SUITE("harmonic_suppression") {
         double                        peak = 0.0;
         for (int k = 0; k < 4000; ++k) {
             const double e = std::sin(w0 * Ts * k) + std::sin(3.0 * w0 * Ts * k);
-            const double u = inside.control(e);
-            const double sent = std::clamp(outside.control(e), -0.1, 0.1);
+            const double u = inside.step(e);
+            const double sent = std::clamp(outside.step(e), -0.1, 0.1);
             outside.back_calculate(sent);
             CHECK(u == doctest::Approx(sent).epsilon(1e-12).scale(0.1));
             peak = std::max(peak, std::abs(inside.resonator(0).resonant.last_output() + inside.resonator(1).resonant.last_output()));
@@ -108,8 +108,8 @@ TEST_SUITE("harmonic_suppression") {
         const size_t n_steps = 20000; // 2 s at 10 kHz
         for (size_t k = 0; k < n_steps; ++k) {
             const double e = reference(k) - y;
-            y = sup.control(e); // unit-gain plant: y[k] = u[k]
-            if (k > 15000) {    // settled window
+            y = sup.step(e); // unit-gain plant: y[k] = u[k]
+            if (k > 15000) { // settled window
                 error_sum += std::abs(e);
             }
         }
@@ -130,7 +130,7 @@ TEST_SUITE("harmonic_suppression") {
         const auto                   d = design::harmonic_suppressor({.Kp = 0.5f, .Ki = 50.0f, .w0 = w0, .wc = 5.0f}, Ts, harmonics);
         REQUIRE(d.success);
         HarmonicSuppressor<2, float> sup(d);
-        const float                  u = sup.control(1.0f);
+        const float                  u = sup.step(1.0f);
         CHECK(std::isfinite(u));
     }
 
@@ -163,8 +163,8 @@ TEST_SUITE("harmonic_suppression") {
         for (size_t k = 0; k < 1000000U; ++k) {
             const double phase = th * static_cast<double>(k % 20000U);
             const float  e = static_cast<float>(0.01 * (damp::sin(phase) + (0.5 * damp::sin(3.0 * phase))));
-            const float  u = bank.control(e);
-            const double u_ref = ref.control(static_cast<double>(e));
+            const float  u = bank.step(e);
+            const double u_ref = ref.step(static_cast<double>(e));
             finite = finite && damp::isfinite(u);
             peak = damp::max(peak, damp::abs(u_ref));
             if (peak > 0.0) {
@@ -194,7 +194,7 @@ TEST_SUITE("harmonic_suppression") {
             HarmonicSuppressor<2, double> sup(d);
             double                        u = 0.0;
             for (int k = 0; k < 5; ++k) {
-                u = sup.control(1.0);
+                u = sup.step(1.0);
             }
             return d.success && damp::abs(u) < 1e6; // finite, bounded
         }();
@@ -215,7 +215,7 @@ TEST_SUITE("harmonic_suppression") {
         HarmonicSuppressor<3, double> b(stuffed);
         CHECK(a.Kp() == doctest::Approx(1.0));
         CHECK(b.Kp() == doctest::Approx(1.0));
-        CHECK(a.control(1.0) == doctest::Approx(b.control(1.0)));
+        CHECK(a.step(1.0) == doctest::Approx(b.step(1.0)));
     }
 
     TEST_CASE("runtime control(r,y), reset, and as<U>() preserve the bank") {
@@ -224,17 +224,17 @@ TEST_SUITE("harmonic_suppression") {
         const auto                   results = design::harmonic_suppressor({.Kp = 1.0, .Ki = 100.0, .w0 = w0, .wc = 10.0}, 1.0 / 10000.0, harmonics);
 
         HarmonicSuppressor<3, double> ctrl(results);
-        CHECK(ctrl.control(1.0) != 0.0);
+        CHECK(ctrl.step(1.0) != 0.0);
 
         HarmonicSuppressor<3, double> a(results);
         HarmonicSuppressor<3, double> b(results);
-        CHECK(a.control(0.5, 0.1) == doctest::Approx(b.control(0.4)));
+        CHECK(a.step(0.5, 0.1) == doctest::Approx(b.step(0.4)));
 
         ctrl.reset();
-        CHECK(ctrl.control(1.0) != 0.0);
+        CHECK(ctrl.step(1.0) != 0.0);
 
         HarmonicSuppressor<3, double> d(results);
-        (void)d.control(0.5);
+        (void)d.step(0.5);
         const auto f = d.as<float>();
         CHECK(f.Kp() == doctest::Approx(1.0f));
         CHECK(f.resonator(0).resonant.last_output() == doctest::Approx(static_cast<float>(d.resonator(0).resonant.last_output())));
@@ -282,6 +282,6 @@ TEST_SUITE("harmonic_suppression") {
         edited.gains[1] = design::PRResult<double>{};
         HarmonicSuppressor<2, double> inert(edited);
         CHECK_FALSE(inert.valid());
-        CHECK(inert.control(1.0) == 0.0);
+        CHECK(inert.step(1.0) == 0.0);
     }
 }

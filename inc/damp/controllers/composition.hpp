@@ -9,12 +9,12 @@
  * @file composition.hpp
  * @brief SISO composition: cascade and switched controller / experiment paths.
  *
- * - Cascade — outer.control(r, y_outer) → inner.control(outer_u, y_inner)
+ * - Cascade — outer.step(r, y_outer) → inner.step(outer_u, y_inner)
  * - SwitchedController — Normal | Experiment | Backup ownership of u
  *
  * SwitchedController stays on the SisoController concept so it nests and drops
  * into simulate_sampled / multi-rate harnesses. Cascade takes a distinct
- * measurement for each loop (control(r, y_outer, y_inner)) and is not a
+ * measurement for each loop (step(r, y_outer, y_inner)) and is not a
  * SisoController — one shared y would regulate the inner loop to the outer
  * measurement. Experiments (relay, FRF drivers)
  * that are not SisoControllers are not stored inside SwitchedController;
@@ -36,8 +36,8 @@ namespace damp {
  *
  * Tick:
  *
- *     u_outer = outer.control(r, y_outer)
- *     u       = inner.control(u_outer, y_inner)
+ *     u_outer = outer.step(r, y_outer)
+ *     u       = inner.step(u_outer, y_inner)
  *
  * While the inner law's command is clamped, at its own u_lim or by a clamp reported with
  * back_calculate, the inner loop cannot follow its reference, and the outer law is told its
@@ -72,12 +72,12 @@ public:
      * @param y_outer Outer measurement (e.g. position, voltage)
      * @param y_inner Inner measurement (e.g. velocity, current)
      */
-    [[nodiscard]] constexpr T control(T r, T y_outer, T y_inner) {
+    [[nodiscard]] constexpr T step(T r, T y_outer, T y_inner) {
         if (!cut_) {
             r_held_ = r_inner_; // the last tick went out uncut: the inner loop could follow its reference
         }
-        r_inner_ = outer_.control(r, y_outer);
-        u_cmd_ = inner_.control(r_inner_, y_inner);
+        r_inner_ = outer_.step(r, y_outer);
+        u_cmd_ = inner_.step(r_inner_, y_inner);
         cut_ = false;
         if constexpr (requires { inner_.u_lim.lower(0); }) {
             if (!(inner_.u_lim.lower(0) < u_cmd_ && u_cmd_ < inner_.u_lim.upper(0))) {
@@ -111,7 +111,7 @@ public:
         cut_ = false;
     }
 
-    /** @brief The command the last control() returned. */
+    /** @brief The command the last step() returned. */
     [[nodiscard]] constexpr T last_command() const { return u_cmd_; }
 
     [[nodiscard]] constexpr Outer&       outer() { return outer_; }
@@ -130,7 +130,7 @@ private:
     Inner inner_{};
     T     r_held_{T{0}};  ///< The outer command of the last tick that went out uncut: where a clamp of the inner command holds it
     T     r_inner_{T{0}}; ///< The outer command of the last tick: the inner law's reference
-    T     u_cmd_{T{0}};   ///< The command the last control() returned
+    T     u_cmd_{T{0}};   ///< The command the last step() returned
     bool  cut_{false};    ///< The last tick's inner command was cut off
 };
 
@@ -195,7 +195,7 @@ public:
     /**
      * @brief One tick of the active controller.
      */
-    [[nodiscard]] constexpr T control(T r, T y) {
+    [[nodiscard]] constexpr T step(T r, T y) {
         on_active([&](auto& law) {
             if constexpr (requires { law.track(applied_, y); law.enable(); }) {
                 if (handover_) {
@@ -203,7 +203,7 @@ public:
                     law.enable();
                 }
             }
-            last_u_ = law.control(r, y);
+            last_u_ = law.step(r, y);
         });
         handover_ = false;
         applied_ = last_u_;
@@ -232,7 +232,7 @@ public:
         }
     }
 
-    /** @brief The command the last control() returned, or the one inject() set, as Cascade's and each law's. */
+    /** @brief The command the last step() returned, or the one inject() set, as Cascade's and each law's. */
     [[nodiscard]] constexpr T last_command() const { return last_u_; }
 
     constexpr void reset() {
@@ -273,7 +273,7 @@ private:
     Experiment experiment_{};
     Backup     backup_{};
     SwitchMode mode_{SwitchMode::Normal};
-    T          last_u_{T{0}};    ///< The command the last control() returned, or inject's
+    T          last_u_{T{0}};    ///< The command the last step() returned, or inject's
     T          applied_{T{0}};   ///< What the plant last received from the switch: a law switched in starts from it
     bool       handover_{false}; ///< A law was switched in and has not ticked yet
 };

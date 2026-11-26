@@ -220,12 +220,12 @@ template<typename T = double>
  * double u = esc.input();                 // first input (= û₀)
  * for (;;) {
  *     double J = measure_objective(u);    // apply u, read the objective
- *     u = esc.control(J);                 // -> next perturbed input
+ *     u = esc.step(J);                 // -> next perturbed input
  * }
  * double u_opt = esc.operating_point();   // converged operating point û
  * @endcode
  *
- * `control(J, measurement_valid)` *freezes* the estimator when the measurement is
+ * `step(J, measurement_valid)` *freezes* the estimator when the measurement is
  * flagged bad (sensor fault / transient): û and the high-/low-pass states hold
  * (the bad J never enters them) while the dither keeps running — the "freeze on
  * degraded measurement" safety behavior.
@@ -269,7 +269,7 @@ public:
      * @param measurement_valid If false, ignore @p objective: hold û and the
      *                          filter states, advance only the dither.
      */
-    [[nodiscard]] constexpr T control(T objective, bool measurement_valid = true) {
+    [[nodiscard]] constexpr T step(T objective, bool measurement_valid = true) {
         if (!valid_) {
             return uhat_;
         }
@@ -305,15 +305,15 @@ public:
         return input();
     }
 
-    /** @brief Not a SISO law: control(r, y) would read y as the validity flag, so it does not compile. */
-    constexpr T control(T, T) = delete;
+    /** @brief Not a SISO law: step(r, y) would read y as the validity flag, so it does not compile. */
+    constexpr T step(T, T) = delete;
 
     /**
      * @brief Record the input the plant received, @p u_sat, when a stage after this law clamped
      *        or replaced its command, and the feedforward @p u_ff added to the command before it
      *
      * The operating point moves by what the clamp cut off, û ← û + u_sat − (u + u_ff) with u the
-     * input control() returned, then into u_lim: û stays where the applied input was, less the
+     * input step() returned, then into u_lim: û stays where the applied input was, less the
      * dither, and does not integrate on behind the clamp. An input applied as commanded changes
      * nothing.
      */

@@ -116,7 +116,7 @@ loop_channel(const StateSpace<NX, NUC, NYC, T, NW, NV>& cl, size_t r0, size_t c0
  * @brief Gang of seven of a plant and a two-degree-of-freedom controller u = K[r; y]
  *
  * The controller is the map from the reference and the measurement to the control, the way a
- * law's @c control(r, y) reads: its first NY inputs are r, its last NY inputs y. Split as
+ * law's @c step(r, y) reads: its first NY inputs are r, its last NY inputs y. Split as
  * @f$ u = C_r r - C_y y @f$, the loop closes through @f$ C_y @f$ alone, so S, T, PS and CS are
  * those of @f$ C_y @f$, and the reference reaches y, u and e = r − y through @f$ C_r @f$:
  * @f[
