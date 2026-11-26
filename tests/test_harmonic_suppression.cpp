@@ -3,13 +3,16 @@
 // Distributed under the Boost Software License, Version 1.0.
 // (See accompanying file LICENSE or copy at http://www.boost.org/LICENSE_1_0.txt)
 
-#include <array>
+// Harmonic suppression: a PR law with a resonator at each harmonic it lists,
+// design::pr(gains, Ts, design::Harmonics{{h, …}}), run by PRController<T, NH>. It folds in what
+// was HarmonicSuppressor, whose tests these are.
+
+#include <algorithm>
 #include <cmath>
 #include <cstddef>
 #include <limits>
 
 #include "damp/backend.hpp"
-#include "damp/controllers/harmonic_suppression.hpp"
 #include "damp/controllers/pr.hpp"
 #include "damp/design/status.hpp"
 #include "damp/math/complex.hpp"
@@ -27,59 +30,53 @@ constexpr double pi = 3.14159265358979323846;
 } // namespace
 
 TEST_SUITE("harmonic_suppression") {
-    TEST_CASE("u_lim: the bank holds against the clamp, never more in all than it cut, as against one reported") {
-        // It had no u_lim and no back_calculate: a clamp after it wound every resonance up.
-        const double                 w0 = 2.0 * pi * 50.0;
-        const double                 Ts = 1e-4;
-        const damp::array<size_t, 2> harmonics{1, 3};
-        auto                         d = design::harmonic_suppressor({.Kp = 0.0, .Ki = 200.0, .w0 = w0, .wc = 5.0}, Ts, harmonics);
+    TEST_CASE("InputLimits: the bank holds against the clamp, never more in all than it cut, as against one reported") {
+        // It had no limits and no back_calculate: a clamp after it wound every resonance up.
+        const double w0 = 2.0 * pi * 50.0;
+        const double Ts = 1e-4;
+        const auto   d = design::pr({.Kp = 0.0, .Ki = 200.0, .w0 = w0, .wc = 5.0}, Ts, design::Harmonics{{1, 3}}, design::InputLimits{.lower = {-0.1}, .upper = {0.1}});
+        const auto   open = design::pr({.Kp = 0.0, .Ki = 200.0, .w0 = w0, .wc = 5.0}, Ts, design::Harmonics{{1, 3}});
         REQUIRE(d.success);
-        d.u_lim = {.lower = -0.1, .upper = 0.1};
-        HarmonicSuppressor<2, double> inside{d};
-        auto                          open = d;
-        open.u_lim = {};
-        HarmonicSuppressor<2, double> outside{open};
-        double                        peak = 0.0;
+        REQUIRE(open.success);
+        PRController<double, 2> inside{d};
+        PRController<double, 2> outside{open};
+        double                  peak = 0.0;
         for (int k = 0; k < 4000; ++k) {
             const double e = std::sin(w0 * Ts * k) + std::sin(3.0 * w0 * Ts * k);
             const double u = inside.step(e);
             const double sent = std::clamp(outside.step(e), -0.1, 0.1);
             outside.back_calculate(sent);
             CHECK(u == doctest::Approx(sent).epsilon(1e-12).scale(0.1));
-            peak = std::max(peak, std::abs(inside.resonator(0).resonant.last_output() + inside.resonator(1).resonant.last_output()));
+            peak = std::max(peak, std::abs(inside.resonant()));
         }
         CHECK(std::abs(inside.last_command()) <= 0.1);
         CHECK(peak <= 0.1 * 1.0001); // the resonators' sum stays inside the clamp
 
-        d.u_lim = {.lower = 1.0, .upper = -1.0};
-        CHECK_FALSE(HarmonicSuppressor<2, double>{d}.valid());
+        const auto inverted = design::pr({.Kp = 0.0, .Ki = 200.0, .w0 = w0, .wc = 5.0}, Ts, design::Harmonics{{1, 3}}, design::InputLimits{.lower = {1.0}, .upper = {-1.0}});
+        CHECK(inverted.status == design::DesignStatus::invalid_parameter);
+        CHECK_FALSE(PRController<double, 2>{inverted}.valid());
     }
 
-    TEST_CASE("synthesize validates the spec") {
-        const double                 w0 = 2.0 * pi * 50.0; // 50 Hz fundamental
-        const double                 Ts = 1.0 / 6000.0;    // 6 kHz loop
-        const damp::array<size_t, 4> harmonics{1, 5, 7, 11};
+    TEST_CASE("the design validates the spec") {
+        const double w0 = 2.0 * pi * 50.0; // 50 Hz fundamental
+        const double Ts = 1.0 / 6000.0;    // 6 kHz loop
 
         SUBCASE("valid spec succeeds and tunes one resonator per harmonic") {
-            const auto d = design::harmonic_suppressor({.Kp = 0.5, .Ki = 200.0, .w0 = w0, .wc = 5.0}, Ts, harmonics);
+            const auto d = design::pr({.Kp = 0.5, .Ki = 200.0, .w0 = w0, .wc = 5.0}, Ts, design::Harmonics{{1, 5, 7, 11}});
             CHECK(d.success);
             // Fundamental carries Kp; harmonics carry Kp = 0.
-            CHECK(d.gains[0].Kp == doctest::Approx(0.5));
-            CHECK(d.gains[1].Kp == doctest::Approx(0.0));
-            CHECK(d.gains[3].w0 == doctest::Approx(w0 * 11.0));
+            CHECK(d.resonator(0).Kp == doctest::Approx(0.5));
+            CHECK(d.resonator(1).Kp == doctest::Approx(0.0));
+            CHECK(d.resonator(3).w0 == doctest::Approx(w0 * 11.0));
         }
         SUBCASE("rejects non-positive Ts / frequency") {
-            CHECK_FALSE(design::harmonic_suppressor({.Kp = 0.5, .Ki = 200.0, .w0 = w0, .wc = 5.0}, 0.0, harmonics).success);
-            CHECK_FALSE(design::harmonic_suppressor({.Kp = 0.5, .Ki = 200.0, .w0 = -w0, .wc = 5.0}, Ts, harmonics).success);
+            CHECK_FALSE(design::pr({.Kp = 0.5, .Ki = 200.0, .w0 = w0, .wc = 5.0}, 0.0, design::Harmonics{{1, 5, 7, 11}}).success);
+            CHECK_FALSE(design::pr({.Kp = 0.5, .Ki = 200.0, .w0 = -w0, .wc = 5.0}, Ts, design::Harmonics{{1, 5, 7, 11}}).success);
         }
         SUBCASE("rejects a 0th harmonic and any harmonic at/above Nyquist") {
-            CHECK_FALSE(
-                design::harmonic_suppressor({.Kp = 0.5, .Ki = 200.0, .w0 = w0, .wc = 5.0}, Ts, damp::array<size_t, 2>{1, 0}).success
-            );
+            CHECK_FALSE(design::pr({.Kp = 0.5, .Ki = 200.0, .w0 = w0, .wc = 5.0}, Ts, design::Harmonics{{1, 0}}).success);
             // 61st harmonic of 50 Hz = 3050 Hz > Nyquist (3 kHz).
-            CHECK_FALSE(
-                design::harmonic_suppressor({.Kp = 0.5, .Ki = 200.0, .w0 = w0, .wc = 5.0}, Ts, damp::array<size_t, 1>{61}).success
-            );
+            CHECK_FALSE(design::pr({.Kp = 0.5, .Ki = 200.0, .w0 = w0, .wc = 5.0}, Ts, design::Harmonics{{61}}).success);
         }
     }
 
@@ -88,14 +85,13 @@ TEST_SUITE("harmonic_suppression") {
         // closes the loop on the error. Each PR resonator has (near-)infinite gain at
         // its harmonic, so a reference built from exactly those harmonics is tracked
         // with vanishing steady-state error.
-        const double                 fs = 10000.0;
-        const double                 Ts = 1.0 / fs;
-        const double                 w0 = 2.0 * pi * 50.0;
-        const damp::array<size_t, 2> harmonics{5, 7};
+        const double fs = 10000.0;
+        const double Ts = 1.0 / fs;
+        const double w0 = 2.0 * pi * 50.0;
 
-        const auto d = design::harmonic_suppressor({.Kp = 0.0, .Ki = 500.0, .w0 = w0, .wc = 10.0}, Ts, harmonics);
+        const auto d = design::pr({.Kp = 0.0, .Ki = 500.0, .w0 = w0, .wc = 10.0}, Ts, design::Harmonics{{5, 7}});
         REQUIRE(d.success);
-        HarmonicSuppressor<2, double> sup(d);
+        PRController<double, 2> sup(d);
 
         auto reference = [&](size_t k) {
             const double t = static_cast<double>(k) * Ts;
@@ -117,37 +113,35 @@ TEST_SUITE("harmonic_suppression") {
     }
 
     TEST_CASE("invalid design is inert (valid() false, finite output)") {
-        const double                  Ts = 1.0 / 6000.0;
-        const auto                    d = design::harmonic_suppressor({.Kp = 0.5, .Ki = 200.0, .w0 = -1.0, .wc = 5.0}, Ts, damp::array<size_t, 1>{5});
-        HarmonicSuppressor<1, double> sup(d);
+        const double            Ts = 1.0 / 6000.0;
+        const auto              d = design::pr({.Kp = 0.5, .Ki = 200.0, .w0 = -1.0, .wc = 5.0}, Ts, design::Harmonics{{5}});
+        PRController<double, 1> sup(d);
         CHECK_FALSE(sup.valid());
     }
 
     TEST_CASE("float specialization compiles and runs") {
-        const float                  Ts = 1.0f / 6000.0f;
-        const float                  w0 = 2.0f * 3.14159265f * 50.0f;
-        const damp::array<size_t, 2> harmonics{1, 5};
-        const auto                   d = design::harmonic_suppressor({.Kp = 0.5f, .Ki = 50.0f, .w0 = w0, .wc = 5.0f}, Ts, harmonics);
+        const float Ts = 1.0f / 6000.0f;
+        const float w0 = 2.0f * 3.14159265f * 50.0f;
+        const auto  d = design::pr({.Kp = 0.5f, .Ki = 50.0f, .w0 = w0, .wc = 5.0f}, Ts, design::Harmonics{{1, 5}});
         REQUIRE(d.success);
-        HarmonicSuppressor<2, float> sup(d);
-        const float                  u = sup.step(1.0f);
+        PRController<float, 2> sup(d);
+        const float            u = sup.step(1.0f);
         CHECK(std::isfinite(u));
     }
 
     TEST_CASE("a float bank retuned to a 1 Hz fundamental at 20 kHz stays on the double bank") {
         // f0/fs = 5e-5: as Direct Form I sections the float resonators ran to Inf there, within 36 s
         // of a 0.01 sine at the fundamental.
-        const float                  Ts = 1.0f / 20000.0f;
-        const float                  w50 = 2.0f * 3.14159265f * 50.0f;
-        const float                  w1 = 2.0f * 3.14159265f;
-        const damp::array<size_t, 2> harmonics{1, 3};
-        const auto                   d = design::harmonic_suppressor({.Kp = 1.0f, .Ki = 100.0f, .w0 = w50, .wc = 5.0f}, Ts, harmonics);
+        const float Ts = 1.0f / 20000.0f;
+        const float w50 = 2.0f * 3.14159265f * 50.0f;
+        const float w1 = 2.0f * 3.14159265f;
+        const auto  d = design::pr({.Kp = 1.0f, .Ki = 100.0f, .w0 = w50, .wc = 5.0f}, Ts, design::Harmonics{{1, 3}});
         REQUIRE(d.success);
-        HarmonicSuppressor<2, float>  bank(d);
-        HarmonicSuppressor<2, double> ref(d.as<double>()); // the same design: the float numbers, in double
-        bank.set_fundamental(w1);
-        ref.set_fundamental(static_cast<double>(w1));
-        CHECK(bank.resonator(1).w0 == doctest::Approx(3.0f * w1));
+        PRController<float, 2>  bank(d);
+        PRController<double, 2> ref(d.as<double>()); // the same design: the float numbers, in double
+        REQUIRE(bank.set_frequency(w1));
+        REQUIRE(ref.set_frequency(static_cast<double>(w1)));
+        CHECK(bank.gains().harmonic(bank.harmonics()[1]).w0 == doctest::Approx(3.0f * w1));
 
         // For each of the two resonators, relative to the output: 8 ulps of ω₀ across a peak ω_c wide,
         // Q = ω₀/(2ω_c) with the 3rd harmonic the sharper, and the roundoff of the 2/c₂ ticks a
@@ -176,23 +170,22 @@ TEST_SUITE("harmonic_suppression") {
     }
 
     TEST_CASE("as<U>() converts the design result precision") {
-        const double                 w0 = 2.0 * pi * 50.0;
-        const double                 Ts = 1.0 / 6000.0;
-        const damp::array<size_t, 2> harmonics{1, 5};
-        const auto                   d = design::harmonic_suppressor({.Kp = 0.5, .Ki = 200.0, .w0 = w0, .wc = 5.0}, Ts, harmonics);
-        const auto                   df = d.template as<float>();
+        const double w0 = 2.0 * pi * 50.0;
+        const double Ts = 1.0 / 6000.0;
+        const auto   d = design::pr({.Kp = 0.5, .Ki = 200.0, .w0 = w0, .wc = 5.0}, Ts, design::Harmonics{{1, 5}});
+        const auto   df = d.template as<float>();
         CHECK(df.success);
-        CHECK(df.gains[0].Kp == doctest::Approx(0.5f));
+        CHECK(df.gains.Kp == doctest::Approx(0.5f));
+        CHECK(df.harmonics[1] == 5);
     }
 
     TEST_CASE("harmonic suppressor is constexpr-evaluable") {
         constexpr bool ok = []() consteval {
-            const double                  w0 = 2.0 * 3.14159265358979323846 * 50.0;
-            const double                  Ts = 1.0 / 6000.0;
-            const damp::array<size_t, 2>  harmonics{1, 5};
-            const auto                    d = design::harmonic_suppressor({.Kp = 0.5, .Ki = 100.0, .w0 = w0, .wc = 5.0}, Ts, harmonics);
-            HarmonicSuppressor<2, double> sup(d);
-            double                        u = 0.0;
+            const double            w0 = 2.0 * 3.14159265358979323846 * 50.0;
+            const double            Ts = 1.0 / 6000.0;
+            const auto              d = design::pr({.Kp = 0.5, .Ki = 100.0, .w0 = w0, .wc = 5.0}, Ts, design::Harmonics{{1, 5}});
+            PRController<double, 2> sup(d);
+            double                  u = 0.0;
             for (int k = 0; k < 5; ++k) {
                 u = sup.step(1.0);
             }
@@ -202,49 +195,62 @@ TEST_SUITE("harmonic_suppression") {
         CHECK(ok);
     }
 
-    TEST_CASE("Kp is applied once even if every resonator carries Kp") {
-        const double                 w0 = 2.0 * pi * 50.0;
-        const double                 Ts = 1.0 / 10000.0;
-        const damp::array<size_t, 3> harmonics{1, 3, 5};
-        const auto                   once = design::harmonic_suppressor({.Kp = 1.0, .Ki = 100.0, .w0 = w0, .wc = 10.0}, Ts, harmonics);
-        auto                         stuffed = once;
-        for (size_t i = 0; i < stuffed.gains.size(); ++i) {
-            stuffed.gains[i].Kp = 1.0;
-        }
-        HarmonicSuppressor<3, double> a(once);
-        HarmonicSuppressor<3, double> b(stuffed);
-        CHECK(a.Kp() == doctest::Approx(1.0));
-        CHECK(b.Kp() == doctest::Approx(1.0));
-        CHECK(a.step(1.0) == doctest::Approx(b.step(1.0)));
+    TEST_CASE("Kp is applied once, not per harmonic") {
+        // HarmonicSuppressor read Kp off its fundamental's result and stripped the others'; the
+        // folded design holds one Kp, so a bank with Kp = 1 is the bank with Kp = 0 plus e.
+        const double            w0 = 2.0 * pi * 50.0;
+        const double            Ts = 1.0 / 10000.0;
+        PRController<double, 3> a(design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = w0, .wc = 10.0}, Ts, design::Harmonics{{1, 3, 5}}));
+        PRController<double, 3> b(design::pr({.Kp = 0.0, .Ki = 100.0, .w0 = w0, .wc = 10.0}, Ts, design::Harmonics{{1, 3, 5}}));
+        CHECK(a.gains().Kp == doctest::Approx(1.0));
+        CHECK(a.step(1.0) - b.step(1.0) == doctest::Approx(1.0).epsilon(1e-12));
     }
 
-    TEST_CASE("runtime control(r,y), reset, and as<U>() preserve the bank") {
-        const double                 w0 = 2.0 * pi * 50.0;
-        const damp::array<size_t, 3> harmonics{1, 3, 5};
-        const auto                   results = design::harmonic_suppressor({.Kp = 1.0, .Ki = 100.0, .w0 = w0, .wc = 10.0}, 1.0 / 10000.0, harmonics);
+    TEST_CASE("the fold: a bank is Kp·e plus a single-resonator PR at each harmonic, Ki/h at h·ω₀") {
+        const double            w0 = 2.0 * pi * 50.0;
+        const double            Ts = 1.0 / 10000.0;
+        const auto              gains = design::PRGains<double>{.Kp = 0.8, .Ki = 120.0, .w0 = w0, .wc = 6.0};
+        PRController<double, 3> bank(design::pr(gains, Ts, design::Harmonics{{1, 5, 7}}));
+        PRController<double>    first(design::pr(gains, Ts));                                                     // Kp and the fundamental
+        PRController<double>    fifth(design::pr({.Kp = 0.0, .Ki = 120.0 / 5.0, .w0 = 5.0 * w0, .wc = 6.0}, Ts)); // the 5th alone
+        PRController<double>    seventh(design::pr({.Kp = 0.0, .Ki = 120.0, .w0 = w0, .wc = 6.0}, Ts, design::Harmonics{{7}}));
+        REQUIRE(bank.valid());
+        // A one-resonator bank at the fundamental is the plain law, tick for tick.
+        PRController<double, 1> one(design::pr(gains, Ts, design::Harmonics{{1}}));
+        PRController<double>    plain(design::pr(gains, Ts));
+        for (int k = 0; k < 2000; ++k) {
+            const double e = std::sin(w0 * Ts * k) + (0.3 * std::sin(5.0 * w0 * Ts * k)) - (0.2 * std::cos(7.0 * w0 * Ts * k));
+            const double sum = first.step(e) + fifth.step(e) + seventh.step(e);
+            CHECK(bank.step(e) == doctest::Approx(sum).epsilon(1e-12).scale(1.0));
+            CHECK(one.step(e) == doctest::Approx(plain.step(e)).epsilon(1e-14)); // the same law: a few ulps
+        }
+    }
 
-        HarmonicSuppressor<3, double> ctrl(results);
+    TEST_CASE("runtime step(r, y), reset, and conversion preserve the bank") {
+        const double w0 = 2.0 * pi * 50.0;
+        const auto   results = design::pr({.Kp = 1.0, .Ki = 100.0, .w0 = w0, .wc = 10.0}, 1.0 / 10000.0, design::Harmonics{{1, 3, 5}});
+
+        PRController<double, 3> ctrl(results);
         CHECK(ctrl.step(1.0) != 0.0);
 
-        HarmonicSuppressor<3, double> a(results);
-        HarmonicSuppressor<3, double> b(results);
+        PRController<double, 3> a(results);
+        PRController<double, 3> b(results);
         CHECK(a.step(0.5, 0.1) == doctest::Approx(b.step(0.4)));
 
         ctrl.reset();
         CHECK(ctrl.step(1.0) != 0.0);
 
-        HarmonicSuppressor<3, double> d(results);
+        PRController<double, 3> d(results);
         (void)d.step(0.5);
-        const auto f = d.as<float>();
-        CHECK(f.Kp() == doctest::Approx(1.0f));
-        CHECK(f.resonator(0).resonant.last_output() == doctest::Approx(static_cast<float>(d.resonator(0).resonant.last_output())));
+        const PRController<float, 3> f(d);
+        CHECK(f.gains().Kp == doctest::Approx(1.0f));
+        CHECK(f.resonant() == doctest::Approx(static_cast<float>(d.resonant())));
     }
 
     TEST_CASE("to_ss / to_tf DC gain is the fundamental Kp") {
-        const double                 w0 = 2.0 * pi * 50.0;
-        const double                 Ts = 1.0 / 6000.0;
-        const damp::array<size_t, 2> harmonics{1, 5};
-        const auto                   d = design::harmonic_suppressor({.Kp = 0.5, .Ki = 200.0, .w0 = w0, .wc = 5.0}, Ts, harmonics);
+        const double w0 = 2.0 * pi * 50.0;
+        const double Ts = 1.0 / 6000.0;
+        const auto   d = design::pr({.Kp = 0.5, .Ki = 200.0, .w0 = w0, .wc = 5.0}, Ts, design::Harmonics{{1, 5}});
         REQUIRE(d.success);
         const auto ss = d.to_ss();
         const auto tf = d.to_tf();
@@ -257,30 +263,29 @@ TEST_SUITE("harmonic_suppression") {
     }
 
     TEST_CASE("a bank without the fundamental retunes each harmonic; a failed resonator fails the bank") {
-        const double                  w0 = 2.0 * pi * 50.0;
-        const double                  Ts = 1.0 / 10000.0;
-        const damp::array<size_t, 2>  harmonics{5, 7};
-        HarmonicSuppressor<2, double> bank(design::harmonic_suppressor({.Kp = 0.0, .Ki = 100.0, .w0 = w0, .wc = 5.0}, Ts, harmonics));
+        const double            w0 = 2.0 * pi * 50.0;
+        const double            Ts = 1.0 / 10000.0;
+        PRController<double, 2> bank(design::pr({.Kp = 0.0, .Ki = 100.0, .w0 = w0, .wc = 5.0}, Ts, design::Harmonics{{5, 7}}));
         REQUIRE(bank.valid());
-        bank.set_fundamental(2.0 * pi * 51.0);
-        CHECK(bank.resonator(0).w0 == doctest::Approx(2.0 * pi * 255.0));
-        CHECK(bank.resonator(1).w0 == doctest::Approx(2.0 * pi * 357.0));
+        REQUIRE(bank.set_frequency(2.0 * pi * 51.0));
+        CHECK(bank.gains().harmonic(bank.harmonics()[0]).w0 == doctest::Approx(2.0 * pi * 255.0));
+        CHECK(bank.gains().harmonic(bank.harmonics()[1]).w0 == doctest::Approx(2.0 * pi * 357.0));
         // A fundamental that would push the 7th past Nyquist (5 kHz) leaves the whole bank alone.
-        bank.set_fundamental(2.0 * pi * 800.0);
-        CHECK(bank.resonator(0).w0 == doctest::Approx(2.0 * pi * 255.0));
+        CHECK_FALSE(bank.set_frequency(2.0 * pi * 800.0));
+        CHECK(bank.gains().harmonic(bank.harmonics()[0]).w0 == doctest::Approx(2.0 * pi * 255.0));
 
         const double inf = std::numeric_limits<double>::infinity();
         const double nan = std::numeric_limits<double>::quiet_NaN();
-        const auto   bad_ki = design::harmonic_suppressor({.Kp = 0.5, .Ki = inf, .w0 = w0, .wc = 5.0}, Ts, harmonics);
+        const auto   bad_ki = design::pr({.Kp = 0.5, .Ki = inf, .w0 = w0, .wc = 5.0}, Ts, design::Harmonics{{5, 7}});
         CHECK_FALSE(bad_ki.success);
         CHECK(bad_ki.status == design::DesignStatus::invalid_parameter);
-        CHECK_FALSE(design::harmonic_suppressor({.Kp = nan, .Ki = 100.0, .w0 = w0, .wc = 5.0}, Ts, harmonics).success);
-        CHECK(design::harmonic_suppressor({.Kp = 0.5, .Ki = 100.0, .w0 = w0, .wc = 5.0}, nan, harmonics).status == design::DesignStatus::invalid_sample_time);
+        CHECK_FALSE(design::pr({.Kp = nan, .Ki = 100.0, .w0 = w0, .wc = 5.0}, Ts, design::Harmonics{{5, 7}}).success);
+        CHECK(design::pr({.Kp = 0.5, .Ki = 100.0, .w0 = w0, .wc = 5.0}, nan, design::Harmonics{{5, 7}}).status == design::DesignStatus::invalid_sample_time);
 
-        // A hand-edited result whose resonator failed leaves the runtime invalid.
-        auto edited = design::harmonic_suppressor({.Kp = 0.5, .Ki = 100.0, .w0 = w0, .wc = 5.0}, Ts, harmonics);
-        edited.gains[1] = design::PRResult<double>{};
-        HarmonicSuppressor<2, double> inert(edited);
+        // A hand-edited result whose resonator cannot run (the 0th harmonic) leaves the runtime invalid.
+        auto edited = design::pr({.Kp = 0.5, .Ki = 100.0, .w0 = w0, .wc = 5.0}, Ts, design::Harmonics{{5, 7}});
+        edited.harmonics[1] = 0;
+        PRController<double, 2> inert(edited);
         CHECK_FALSE(inert.valid());
         CHECK(inert.step(1.0) == 0.0);
     }

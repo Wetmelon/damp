@@ -13,7 +13,6 @@
 
 #include "damp/controllers/adrc.hpp"
 #include "damp/controllers/esc.hpp"
-#include "damp/controllers/harmonic_suppression.hpp"
 #include "damp/controllers/lead_lag.hpp"
 #include "damp/controllers/lqg.hpp"
 #include "damp/controllers/lqgi.hpp"
@@ -212,7 +211,7 @@ TEST_SUITE("NaN/Inf policy") {
         ExtremumSeekingController<float>   esc{design::ESCResult<float>{}};
         RepetitiveController<16, float>    rep{design::RepetitiveResult<float>{}};
         SmithPredictor<8, float>           smith{design::SmithPredictorResult<float>{}};
-        HarmonicSuppressor<3, float>       harm{design::HarmonicSuppressorResult<3, float>{}};
+        PRController<float, 3>             harm{design::PRResult<float, 3>{}};
         auto                               lqi = LQI{design::LQIResult<2, 1, 1, float, 1>{}};
         auto                               lqgi = LQGI{design::LQGIResult<2, 1, 1, 1, float, 2, 1>{}};
         auto                               lqg = LQG{design::LQGResult<2, 1, 1, float, 2, 1>{}};

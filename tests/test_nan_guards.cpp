@@ -203,21 +203,64 @@ TEST_SUITE("NaN guards") {
         CHECK(Goertzel<T>(T{50}, ts, 64).block_size() == 64);
     }
 
+    TEST_CASE_TEMPLATE("PR and lead-lag set_limits, set_gains and set_frequency refuse a NaN or an infinite value and change nothing", T, float, double) {
+        const T                   Ts = static_cast<T>(1e-4);
+        PRController<T, 2>        pr{design::pr<T>({.Kp = T{1}, .Ki = T{10}, .w0 = T{314}, .wc = T{5}}, Ts, design::Harmonics{{1, 3}})};
+        LeadLagController<T, 2>   ll{design::lead_lag<T>({.phase_max = static_cast<T>(0.5), .wc = T{10}, .dc_gain_boost = T{5}}, Ts)};
+        const design::PRGains<T>  pr_gains = pr.gains();
+        const auto                ll_gains = ll.gains();
+        const design::PRLimits<T> held{.input = {.lower = T{-1}, .upper = T{1}}};
+        REQUIRE(pr.valid());
+        REQUIRE(ll.valid());
+        REQUIRE(pr.set_limits(held));
+        REQUIRE(ll.set_limits({.input = held.input}));
+        for (const T bad : non_finite<T>()) {
+            CHECK_FALSE(pr.set_limits({.input = {.lower = bad, .upper = T{1}}}));
+            CHECK_FALSE(pr.set_limits({.input = {.lower = T{-1}, .upper = bad}}));
+            CHECK_FALSE(ll.set_limits({.input = {.lower = bad, .upper = T{1}}}));
+            CHECK_FALSE(ll.set_limits({.input = {.lower = T{-1}, .upper = bad}}));
+            for (int field = 0; field < 5; ++field) { // Kp, Ki, w0, wc, tracking_time
+                auto g = pr_gains;
+                (field == 0 ? g.Kp : field == 1 ? g.Ki
+                                 : field == 2   ? g.w0
+                                 : field == 3   ? g.wc
+                                                : g.tracking_time) = bad;
+                CHECK_FALSE(pr.set_gains(g));
+            }
+            CHECK_FALSE(pr.set_frequency(bad));
+            for (int field = 0; field < 6; ++field) { // K, z, p of each section
+                auto  g = ll_gains;
+                auto& section = g[static_cast<size_t>(field / 3)];
+                (field % 3 == 0 ? section.K : field % 3 == 1 ? section.z
+                                                             : section.p) = bad;
+                CHECK_FALSE(ll.set_gains(g));
+            }
+        }
+        CHECK(bits_of(pr.limits().input.lower(0)) == bits_of(T{-1}));
+        CHECK(bits_of(ll.limits().input.upper(0)) == bits_of(T{1}));
+        CHECK(bits_of(pr.gains().w0) == bits_of(pr_gains.w0));
+        CHECK(bits_of(pr.gains().Ki) == bits_of(pr_gains.Ki));
+        CHECK(bits_of(ll.gains()[1].p) == bits_of(ll_gains[1].p));
+        CHECK(damp::isfinite(pr.step(T{1})));
+        CHECK(damp::isfinite(ll.step(T{1})));
+    }
+
     TEST_CASE_TEMPLATE("controllers built from a result with a non-finite sample time, pole, zero or gain are invalid", T, float, double) {
         const T ts{static_cast<T>(1e-3)};
         for (const T bad : non_finite<T>()) {
-            auto lead = design::lead(static_cast<T>(0.5), T{10}, ts);
+            auto lead = design::lead({.phase_max = static_cast<T>(0.5), .wc = T{10}}, ts);
             REQUIRE(lead.success);
             CHECK(LeadLagController<T>{lead}.valid());
-            for (T design::LeadLagResult<T>::* field : {&design::LeadLagResult<T>::Ts, &design::LeadLagResult<T>::z, &design::LeadLagResult<T>::p}) {
+            for (int field = 0; field < 3; ++field) { // Ts, z, p
                 auto broken = lead;
-                broken.*field = bad;
+                (field == 0 ? broken.Ts : field == 1 ? broken.gains[0].z
+                                                     : broken.gains[0].p) = bad;
                 LeadLagController<T> c{broken};
                 CHECK_FALSE(c.valid());
                 CHECK(c.step(T{1}, T{0}) == T{0});
             }
 
-            auto pr = design::pr(design::PRSpec<T>{.Kp = T{1}, .Ki = T{10}, .w0 = T{314}}, static_cast<T>(1e-4));
+            auto pr = design::pr(design::PRGains<T>{.Kp = T{1}, .Ki = T{10}, .w0 = T{314}}, static_cast<T>(1e-4));
             REQUIRE(pr.success);
             pr.Ts = bad;
             CHECK_FALSE(PRController<T>{pr}.valid());

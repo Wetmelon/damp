@@ -7,6 +7,7 @@
 #include <cstddef>
 #include <limits>
 #include <numbers>
+#include <type_traits>
 
 #include "damp/backend.hpp"
 #include "damp/controllers/repetitive.hpp"
@@ -20,12 +21,17 @@ using namespace damp;
 
 namespace {
 constexpr double pi = std::numbers::pi;
+
+/** @brief [rad/s] The angular frequency of @p f [Hz]. */
+constexpr double hz(double f) {
+    return 2.0 * pi * f;
+}
 } // namespace
 
 TEST_SUITE("repetitive") {
     TEST_CASE("repetitive computes the period and validates the spec") {
-        SUBCASE("valid: fs=1000, f0=50 -> N=20") {
-            const auto r = design::repetitive(1000.0, 50.0, 1.0, 0.98, 1);
+        SUBCASE("valid: 50 Hz at 1 kHz -> N=20") {
+            const auto r = design::repetitive({.w0 = hz(50.0), .gain = 1.0, .q = 0.98, .lead = 1}, 1.0 / 1000.0);
             CHECK(r.success);
             CHECK(r.config.period == 20);
             CHECK(r.config.gain == doctest::Approx(1.0));
@@ -33,14 +39,14 @@ TEST_SUITE("repetitive") {
             CHECK(r.config.lead == 1);
         }
         SUBCASE("rounds to nearest period") {
-            CHECK(design::repetitive(1000.0, 49.0).config.period == 20); // 1000/49 = 20.4
-            CHECK(design::repetitive(1000.0, 47.0).config.period == 21); // 1000/47 = 21.3
+            CHECK(design::repetitive({.w0 = hz(49.0)}, 1.0 / 1000.0).config.period == 20); // 1000/49 = 20.4
+            CHECK(design::repetitive({.w0 = hz(47.0)}, 1.0 / 1000.0).config.period == 21); // 1000/47 = 21.3
         }
         SUBCASE("rejects bad specs") {
-            CHECK_FALSE(design::repetitive(1000.0, 1000.0).success);         // f0 >= fs
-            CHECK_FALSE(design::repetitive(1000.0, -50.0).success);          // f0 < 0
-            CHECK_FALSE(design::repetitive(1000.0, 50.0, 3.0).success);      // gain > 2
-            CHECK_FALSE(design::repetitive(1000.0, 50.0, 1.0, 1.5).success); // q > 1
+            CHECK_FALSE(design::repetitive({.w0 = hz(1000.0)}, 1.0 / 1000.0).success);                      // ω₀ at the sample rate: N = 1
+            CHECK_FALSE(design::repetitive({.w0 = hz(-50.0)}, 1.0 / 1000.0).success);                       // ω₀ < 0
+            CHECK_FALSE(design::repetitive({.w0 = hz(50.0), .gain = 3.0}, 1.0 / 1000.0).success);           // gain > 2
+            CHECK_FALSE(design::repetitive({.w0 = hz(50.0), .gain = 1.0, .q = 1.5}, 1.0 / 1000.0).success); // q > 1
         }
     }
 
@@ -49,7 +55,7 @@ TEST_SUITE("repetitive") {
         // With a perfect 1-sample model (lead m = 1, Q = 1, k_rc = 1) the periodic
         // tracking error must vanish after one period.
         constexpr size_t N = 20;
-        const auto       design = design::repetitive(1000.0, 50.0, 1.0, 1.0, 1);
+        const auto       design = design::repetitive({.w0 = hz(50.0), .gain = 1.0, .q = 1.0, .lead = 1}, 1.0 / 1000.0);
         REQUIRE(design.success);
         REQUIRE(design.config.period == N);
 
@@ -82,7 +88,7 @@ TEST_SUITE("repetitive") {
     TEST_CASE("rejects a periodic disturbance") {
         // Plant y[k] = u[k-1] + d[k], periodic disturbance d, reference r = 0.
         constexpr size_t N = 24;
-        const auto       design = design::repetitive(1200.0, 50.0, 1.0, 1.0, 1);
+        const auto       design = design::repetitive({.w0 = hz(50.0), .gain = 1.0, .q = 1.0, .lead = 1}, 1.0 / 1200.0);
         REQUIRE(design.success);
         REQUIRE(design.config.period == N);
 
@@ -108,7 +114,7 @@ TEST_SUITE("repetitive") {
     }
 
     TEST_CASE("Q < 1 stays bounded (robustness roll-off) and reset clears state") {
-        const auto                       design = design::repetitive(1000.0, 50.0, 1.0, 0.9, 1);
+        const auto                       design = design::repetitive({.w0 = hz(50.0), .gain = 1.0, .q = 0.9, .lead = 1}, 1.0 / 1000.0);
         RepetitiveController<64, double> rc(design);
         // Feed a unit-impulse error; with Q<1 the internal model decays, output bounded.
         double maxout = std::abs(rc.step(1.0));
@@ -124,14 +130,14 @@ TEST_SUITE("repetitive") {
     }
 
     TEST_CASE("invalid design yields a pass-through (zero correction)") {
-        RepetitiveController<64, double> rc(design::repetitive(1000.0, 1000.0)); // invalid
+        RepetitiveController<64, double> rc(design::repetitive({.w0 = hz(1000.0)}, 1.0 / 1000.0)); // invalid
         CHECK_FALSE(rc.valid());
         CHECK(rc.step(1.0) == doctest::Approx(0.0));
     }
 
     TEST_CASE("repetitive controller is constexpr-evaluable") {
         constexpr bool ok = []() consteval {
-            auto                             d = design::repetitive(1000.0, 100.0, 1.0, 1.0, 0);
+            auto                             d = design::repetitive({.w0 = hz(100.0), .gain = 1.0, .q = 1.0, .lead = 0}, 1.0 / 1000.0);
             RepetitiveController<32, double> rc(d);
             // Period N=10. Feed a constant error of 1: the first period emits no
             // correction (empty internal model), then the model from one period
@@ -147,7 +153,7 @@ TEST_SUITE("repetitive") {
     }
 
     TEST_CASE("cross-precision converting ctor preserves the learned model") {
-        const auto                       d = design::repetitive(1000.0, 50.0, 1.0, 0.99, 1);
+        const auto                       d = design::repetitive({.w0 = hz(50.0), .gain = 1.0, .q = 0.99, .lead = 1}, 1.0 / 1000.0);
         RepetitiveController<64, double> rc(d);
 
         // Learn from a periodic error for several periods.
@@ -168,10 +174,10 @@ TEST_SUITE("repetitive") {
         CHECK(static_cast<double>(u_f) == doctest::Approx(u_d).epsilon(1e-4));
     }
 
-    TEST_CASE("repetitive design rejects rates whose period overflows size_t") {
-        CHECK_FALSE(design::repetitive(1e300, 1e-300).success);
-        CHECK(design::repetitive(10000.0, 50.0).config.period == 200);
-        CHECK(design::repetitive_binomial<2>(10000.0f, 50.0f).success); // float taps still sum to ≤ 1
+    TEST_CASE("repetitive design rejects a fundamental whose period overflows size_t") {
+        CHECK_FALSE(design::repetitive({.w0 = hz(1e-300)}, 1.0 / 1e300).success);
+        CHECK(design::repetitive({.w0 = hz(50.0)}, 1.0 / 10000.0).config.period == 200);
+        CHECK(design::repetitive_binomial<2>({.w0 = static_cast<float>(hz(50.0))}, 1e-4f).success); // float taps still sum to ≤ 1
     }
 }
 
@@ -208,7 +214,7 @@ double closed_loop_peak(Rc& rc, int delay, double g, int steps) {
 TEST_SUITE("repetitive FIR Q") {
     TEST_CASE("binomial Q taps are correct and unity-DC-gain") {
         SUBCASE("M=1 -> [1,2,1]/4") {
-            const auto r = design::repetitive_binomial<1>(1000.0, 50.0);
+            const auto r = design::repetitive_binomial<1>({.w0 = hz(50.0)}, 1.0 / 1000.0);
             REQUIRE(r.success);
             CHECK(r.config.q_half == 1);
             CHECK(r.config.q_filter == doctest::Approx(0.5));    // 2/4
@@ -216,7 +222,7 @@ TEST_SUITE("repetitive FIR Q") {
             CHECK(r.config.q_dc_gain() == doctest::Approx(1.0)); // 0.5 + 2*0.25
         }
         SUBCASE("M=2 -> [1,4,6,4,1]/16") {
-            const auto r = design::repetitive_binomial<2>(1000.0, 50.0);
+            const auto r = design::repetitive_binomial<2>({.w0 = hz(50.0)}, 1.0 / 1000.0);
             REQUIRE(r.success);
             CHECK(r.config.q_filter == doctest::Approx(6.0 / 16.0));
             CHECK(r.config.q_side[0] == doctest::Approx(4.0 / 16.0));
@@ -231,7 +237,7 @@ TEST_SUITE("repetitive FIR Q") {
         // rejection) but deliberately rolls off the higher ones (robustness), so
         // rejection is strong but not perfect — unlike the scalar Q=1 case.
         constexpr size_t N = 24;
-        const auto       art = design::repetitive_binomial<1>(1200.0, 50.0, 1.0, 1);
+        const auto       art = design::repetitive_binomial<1>({.w0 = hz(50.0), .gain = 1.0, .lead = 1}, 1.0 / 1200.0);
         REQUIRE(art.success);
         REQUIRE(art.config.period == N);
         RepetitiveController<64, double, 1> rc(art);
@@ -264,8 +270,8 @@ TEST_SUITE("repetitive FIR Q") {
         const double g = 1.0;
         const int    steps = 4000;
 
-        RepetitiveController<64, double, 0> scalar_q(design::repetitive(1000.0, 50.0, 0.5, 1.0, 0));
-        RepetitiveController<64, double, 2> fir_q(design::repetitive_binomial<2>(1000.0, 50.0, 0.5, 0));
+        RepetitiveController<64, double, 0> scalar_q(design::repetitive({.w0 = hz(50.0), .gain = 0.5, .q = 1.0, .lead = 0}, 1.0 / 1000.0));
+        RepetitiveController<64, double, 2> fir_q(design::repetitive_binomial<2>({.w0 = hz(50.0), .gain = 0.5, .lead = 0}, 1.0 / 1000.0));
         REQUIRE(scalar_q.valid());
         REQUIRE(fir_q.valid());
 
@@ -278,7 +284,7 @@ TEST_SUITE("repetitive FIR Q") {
     }
 
     TEST_CASE("as<float>() carries the FIR taps") {
-        const auto art = design::repetitive_binomial<2>(1000.0, 50.0);
+        const auto art = design::repetitive_binomial<2>({.w0 = hz(50.0)}, 1.0 / 1000.0);
         const auto af = art.template as<float>();
         CHECK(af.success);
         CHECK(af.config.q_half == 2);
@@ -290,7 +296,7 @@ TEST_SUITE("repetitive FIR Q") {
 
     TEST_CASE("FIR-Q repetitive is constexpr-evaluable") {
         constexpr bool ok = []() consteval {
-            auto                                art = design::repetitive_binomial<1>(1000.0, 100.0, 1.0, 0);
+            auto                                art = design::repetitive_binomial<1>({.w0 = hz(100.0), .gain = 1.0, .lead = 0}, 1.0 / 1000.0);
             RepetitiveController<32, double, 1> rc(art);
             double                              last = 0.0;
             for (int k = 0; k < 40; ++k) {
@@ -307,7 +313,7 @@ TEST_SUITE("repetitive FIR Q") {
         // |1 − k_rc·G| > 1. With Q on both the memory and the output, the loop condition is
         // |Q·(1 − k_rc·G)| < 1 (max 0.77 here); with Q on the memory only it was
         // |Q − k_rc·G| < 1 (max 1.34), and |e| grew past 1e21 in 40000 ticks.
-        RepetitiveController<256, double, 2> rc(design::repetitive_binomial<2>(10000.0, 50.0, 0.5));
+        RepetitiveController<256, double, 2> rc(design::repetitive_binomial<2>({.w0 = hz(50.0), .gain = 0.5}, 1.0 / 10000.0));
         REQUIRE(rc.valid());
         double y1 = 0.0;
         double y2 = 0.0;
@@ -331,23 +337,24 @@ TEST_SUITE("repetitive FIR Q") {
 
     TEST_CASE("the output tap's FIR window must lie in the past; NaN rates are refused") {
         // N = 20, M = 2: lead + M must stay below N.
-        CHECK(design::repetitive_binomial<2>(1000.0, 50.0, 1.0, 17).success);
-        const auto late = design::repetitive_binomial<2>(1000.0, 50.0, 1.0, 18);
+        CHECK(design::repetitive_binomial<2>({.w0 = hz(50.0), .gain = 1.0, .lead = 17}, 1.0 / 1000.0).success);
+        const auto late = design::repetitive_binomial<2>({.w0 = hz(50.0), .gain = 1.0, .lead = 18}, 1.0 / 1000.0);
         CHECK_FALSE(late.success);
         CHECK(late.status == design::DesignStatus::invalid_parameter);
 
         const double nan = std::numeric_limits<double>::quiet_NaN();
-        CHECK_FALSE(design::repetitive(1000.0, nan).success);
-        CHECK_FALSE(design::repetitive(nan, 50.0).success);
-        CHECK_FALSE(design::repetitive(1000.0, 50.0, nan).success);
-        CHECK(design::detail::repetitive_period(1000.0, nan) == 0);
+        CHECK(design::repetitive({.w0 = nan}, 1e-3).status == design::DesignStatus::invalid_parameter);
+        CHECK(design::repetitive({.w0 = hz(50.0)}, nan).status == design::DesignStatus::invalid_sample_time);
+        CHECK_FALSE(design::repetitive({.w0 = hz(50.0), .gain = nan}, 1e-3).success);
+        CHECK(design::detail::repetitive_period(hz(50.0), nan) == 0);
+        CHECK(design::detail::repetitive_period(nan, 1e-3) == 0);
     }
 
     TEST_CASE("back_calculate: the memory does not learn from samples the actuator could not follow") {
         //! With Q = 1 the memory integrates the error period over period. Behind a clamp the
         //! error at the clipped samples never closes, so the memory grew for as long as it lasted.
         constexpr size_t N = 20;
-        const auto       design = design::repetitive(1000.0, 50.0, 1.0, 1.0, 1);
+        const auto       design = design::repetitive({.w0 = hz(50.0), .gain = 1.0, .q = 1.0, .lead = 1}, 1.0 / 1000.0);
         REQUIRE(design.success);
         RepetitiveController<64, double> told(design);
         RepetitiveController<64, double> untold(design);
@@ -385,7 +392,7 @@ TEST_SUITE("repetitive FIR Q") {
     }
 
     TEST_CASE("back_calculate with no lead: a clamp a ring ago does not stop this period's learning") {
-        const auto design = design::repetitive(1000.0, 250.0, 1.0, 1.0, 0); // N = 4: the ring is the period
+        const auto design = design::repetitive({.w0 = hz(250.0), .gain = 1.0, .q = 1.0, .lead = 0}, 1.0 / 1000.0); // N = 4: the ring is the period
         REQUIRE(design.success);
         REQUIRE(design.config.period == 4);
         RepetitiveController<4, double> rc(design);
@@ -399,5 +406,65 @@ TEST_SUITE("repetitive FIR Q") {
             static_cast<void>(rc.step(0.0));
         }
         CHECK(rc.step(0.0) == doctest::Approx(1.0)); // was 0: tick 4 read tick 0's flag
+    }
+}
+
+namespace {
+constexpr auto kRep = design::repetitive({.w0 = hz(50.0), .gain = 1.0, .q = 0.98, .lead = 1}, 1e-3); // N = 20
+constexpr auto kBinomial = design::repetitive_binomial<2>({.w0 = hz(50.0), .gain = 0.5}, 1e-4);      // N = 200, M = 2
+} // namespace
+
+TEST_SUITE("repetitive: the runtime contract") {
+    TEST_CASE("Ts is refused unless finite and positive; the period comes from Ts and ω₀") {
+        // The design took the sample rate and the fundamental in Hz; it takes Ts and ω₀ [rad/s], as PR does.
+        for (const double Ts : {0.0, -1e-3, std::numeric_limits<double>::infinity(), std::numeric_limits<double>::quiet_NaN()}) {
+            CAPTURE(Ts);
+            CHECK(design::repetitive({.w0 = hz(50.0)}, Ts).status == design::DesignStatus::invalid_sample_time);
+            CHECK(design::repetitive_binomial<1>({.w0 = hz(50.0)}, Ts).status == design::DesignStatus::invalid_sample_time);
+        }
+        CHECK(design::repetitive({.w0 = hz(50.0)}, 1e-4).config.period == 200);
+        CHECK(design::repetitive({.w0 = hz(60.0)}, 1.0 / 12000.0).config.period == 200);
+        // The spec's q scales the binomial filter, so q = 1 is the binomial filter itself.
+        const auto scaled = design::repetitive_binomial<1>({.w0 = hz(50.0), .q = 0.9}, 1e-3);
+        REQUIRE(scaled.success);
+        CHECK(scaled.config.q_dc_gain() == doctest::Approx(0.9));
+        CHECK(scaled.config.q_side[0] == doctest::Approx(0.9 * 0.25));
+    }
+
+    TEST_CASE("track: the internal model is held and kept in phase, the error not learned, u recorded") {
+        // Two laws learn the same periodic error, then one steps with e = 0 while the other tracks a
+        // nonzero error: the tracked one stored w[k] = Q·w[k−N] as the stepped one did, and did not
+        // learn the error it was not acting on, so the two run on as one.
+        RepetitiveController<64, double> stepped(kRep);
+        RepetitiveController<64, double> tracked(kRep);
+        for (size_t k = 0; k < 100; ++k) {
+            const double e = std::sin(2.0 * pi * static_cast<double>(k) / 20.0);
+            CHECK(stepped.step(e) == doctest::Approx(tracked.step(e)).epsilon(1e-14));
+        }
+        for (size_t k = 0; k < 13; ++k) { // not a whole period: the phase must move with the ticks
+            static_cast<void>(stepped.step(0.0));
+            tracked.track(0.25, 5.0);
+            CHECK(tracked.last_command() == 0.25);
+        }
+        tracked.back_calculate(0.25); // the correction track recorded: no clamp to report
+        for (size_t k = 0; k < 60; ++k) {
+            const double e = std::sin(2.0 * pi * static_cast<double>(k + 113) / 20.0);
+            CHECK(tracked.step(e) == doctest::Approx(stepped.step(e)).epsilon(1e-14)); // a few ulps: two inlined copies of one tick
+        }
+    }
+
+    TEST_CASE("Law<kRes, T> of a repetitive design sizes the buffer to the design's period") {
+        static constinit Law<kRep, float>      rep;
+        static constinit Law<kBinomial, float> binomial;
+        static_assert(std::is_base_of_v<RepetitiveController<20, float>, Law<kRep, float>>);          // N + 0
+        static_assert(std::is_base_of_v<RepetitiveController<202, float, 2>, Law<kBinomial, float>>); // N + M
+        static_assert(sizeof(Law<kRep, float>) < sizeof(RepetitiveController<64, float>));
+        RepetitiveController<64, float> wide{kRep};
+        CHECK(rep.valid());
+        CHECK(binomial.valid());
+        for (size_t k = 0; k < 200; ++k) {
+            const float e = static_cast<float>(std::sin(2.0 * pi * static_cast<double>(k) / 20.0));
+            CHECK(rep.step(e) == doctest::Approx(wide.step(e)).epsilon(1e-6));
+        }
     }
 }

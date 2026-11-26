@@ -193,7 +193,9 @@ the repo root.
   `input_rate`) and end with `disturbance`, and a design result holds the same
   struct as `limits`. The PID laws do the same with `design::PIDLimits` (`input`,
   `integral`, the latter on the I term in u's units), which `design::pid`'s
-  `InputLimits` and `AntiWindup` give them, and take new gains with `gains()` / `set_gains(g)`. The other
+  `InputLimits` and `AntiWindup` give them, and take new gains with `gains()` / `set_gains(g)`.
+  PR and lead-lag do too, `design::PRLimits` and `design::LeadLagLimits` (`input`), from an
+  `InputLimits` among their designs' options. The other
   runtimes hold `u_lim` as a public member. The
   tick returns a command inside its limits, and with nothing else set the law's
   memory holds against that clamp (conditional integration, an observer or

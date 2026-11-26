@@ -375,6 +375,22 @@ template<typename Ts>
     return true;
 }
 
+/**
+ * @brief Whether the design @p Res a Law is declared with runs: a `constexpr` one that failed, or
+ *        has a Ts that is not positive, does not compile, and the error names its status; one
+ *        initialized at start-up is checked by its runtime, at run time.
+ */
+template<const auto& Res>
+[[nodiscard]] consteval bool constant_design_checked() {
+    if constexpr (!constant_design<Res>) {
+        return true;
+    } else if constexpr (requires { Res.Ts; }) {
+        return constant_design_runs(Res.success, Res.status, Res.Ts);
+    } else {
+        return constant_design_runs(Res.success, Res.status);
+    }
+}
+
 } // namespace detail
 
 } // namespace damp
