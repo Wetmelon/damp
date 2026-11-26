@@ -19,7 +19,7 @@
 using namespace damp;
 using namespace damp::examples_pid;
 
-static constinit PIController<float> controller = pi_design.discretize(static_cast<double>(Ts)).as<float>();
+static constinit PIController<float> controller = pi_design.as<float>();
 
 int main() {
     fmt::print("===== PID / PI deploy (host smoke) =====\n\n");

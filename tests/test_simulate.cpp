@@ -11,6 +11,7 @@
 #include "damp/controllers/lqr.hpp"
 #include "damp/controllers/pid.hpp"
 #include "damp/controllers/state_feedback.hpp"
+#include "damp/design/pid_design.hpp"
 #include "damp/math/math.hpp"
 #include "damp/matrix/matrix.hpp"
 #include "damp/simulation/integrator.hpp"
@@ -118,7 +119,7 @@ TEST_CASE("SIL: PIDController tracks a step on a first-order plant (simulate_lti
     };
 
     // design::… → discretize → controller (same shape as on target; double for SIL).
-    auto pid = PIController<double>{design::pid(4.0, 8.0, 0.0).discretize(Ts)};
+    auto pid = PIController<double>{design::pid(design::Parallel{.Kp = 4.0, .Ki = 8.0}, Ts)};
 
     RK4<1>          rk4;
     FixedStepSolver fine{rk4, Ts / 10.0}; // 10× plant substeps per control tick

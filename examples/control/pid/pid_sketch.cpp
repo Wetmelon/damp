@@ -30,7 +30,7 @@ static constexpr int OUTPUT = 1;
 #define loop loop_
 #endif
 
-static constinit PIController<float> controller = pi_design.discretize(static_cast<double>(Ts)).as<float>();
+static constinit PIController<float> controller = pi_design.as<float>();
 
 static float reference = 1.0f;
 

@@ -12,7 +12,7 @@
  * Compile-time control design in the same tree as firmware
  * (variant gains as @c constexpr), with the same runtime objects usable in SIL.
  *
- * Start here on the MCU: @c StateSpace (or TF / ZPK), @c design::state_feedback / @c pidtune / @c kalman,
+ * Start here on the MCU: @c StateSpace (or TF / ZPK), @c design::state_feedback / @c design::pid / @c kalman,
  * @c Law<kRes, float> on a @c constexpr design, then @c step in the interrupt. Same objects in SIL.
  *
  * This umbrella is the embeddable surface:
@@ -71,6 +71,7 @@
 #include "damp/design/options.hpp"             // IWYU pragma: export
 #include "damp/design/pid_design.hpp"          // IWYU pragma: export
 #include "damp/design/pole_placement.hpp"      // IWYU pragma: export
+#include "damp/design/poles.hpp"               // IWYU pragma: export
 #include "damp/design/qp.hpp"                  // IWYU pragma: export
 #include "damp/design/riccati.hpp"             // IWYU pragma: export
 #include "damp/design/stability.hpp"           // IWYU pragma: export

@@ -41,7 +41,7 @@
  *   auto result = simulate(plant, output, controller, solver, x0, {0.0, 10.0});
  *
  *   // SISO PID (or any step(r, y) SisoController) with a constant reference:
- *   auto pid = PIController<double>{design::pid(2.0, 5.0, 0.0).discretize(Ts)};
+ *   auto pid = PIController<double>{design::pid(design::Parallel{.Kp = 2.0, .Ki = 5.0}, Ts)};
  *   auto sil = simulate_lti_siso(plant_ss, pid, 1.0, fine_solver, Ts, x0, {0.0, 5.0});
  * @endcode
  */

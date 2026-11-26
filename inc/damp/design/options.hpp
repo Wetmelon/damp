@@ -52,6 +52,10 @@ struct OutputLimits {};        ///< OutputLimits: an MPC's bounded outputs
 struct StateLimits {};         ///< StateLimits: an MPC's bounded states
 struct Terminal {};            ///< DareCost or InvariantSet: an MPC's terminal ingredient
 struct QPIterations {};        ///< QPIterations: a QP's iteration budget
+struct Rule {};                ///< SIMC, AMIGO, LoopShape or PolePlacement: a PID's tuning rule, which is an argument, never an option
+struct DerivativeFilter {};    ///< DerivativeFilter: a PID's derivative filter
+struct SetpointWeights {};     ///< SetpointWeights: a PID's setpoint weights
+struct AntiWindup {};          ///< AntiWindup: a PID's tracking time and integral clamp
 
 } // namespace kind
 
@@ -149,6 +153,12 @@ consteval void at_most_one() {
         static_assert(N <= 1, "One TrackedOutputs lists every output the target holds at r: TrackedOutputs{{i, ...}}.");
     } else if constexpr (damp::is_same_v<Kind, kind::MeasuredDisturbance>) {
         static_assert(N <= 1, "One MeasuredDisturbance carries every measured input: MeasuredDisturbance{.Bd = Bd}, a column of Bd per input.");
+    } else if constexpr (damp::is_same_v<Kind, kind::DerivativeFilter>) {
+        static_assert(N <= 1, "One derivative filter: DerivativeFilter{.Tf = ...}.");
+    } else if constexpr (damp::is_same_v<Kind, kind::SetpointWeights>) {
+        static_assert(N <= 1, "One SetpointWeights carries both weights: SetpointWeights{.b = ..., .c = ...}.");
+    } else if constexpr (damp::is_same_v<Kind, kind::AntiWindup>) {
+        static_assert(N <= 1, "One AntiWindup carries the tracking time and the integral's clamp: AntiWindup{.tracking_time = ..., .limits = {...}}.");
     } else {
         static_assert(N <= 1, "An option given twice: each kind of option is given at most once.");
     }

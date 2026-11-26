@@ -195,7 +195,7 @@ TEST_SUITE("Multi-rate harness") {
             .Ts = 0.0,
         };
 
-        const auto           inner_d = design::pid_pole_placement(TransferFunction<1, 2>{.num = {1.0}, .den = {1.0, 1.0}}, {.omega = 20.0}).discretize(Ts_base);
+        const auto           inner_d = design::pid(TransferFunction<1, 2>{.num = {1.0}, .den = {1.0, 1.0}}, Ts_base, design::PolePlacement{.omega = 20.0});
         PIController<double> inner_pi{inner_d};
 
         auto outer = [&](double, const ColVec<1>&) -> ColVec<1> { return ColVec<1>{r_cmd}; };
@@ -232,8 +232,8 @@ TEST_SUITE("Multi-rate harness") {
         auto output = [](const ColVec<2>& x) -> ColVec<2> { return x; }; // y = [pos, vel]
 
         // Treat velocity plant as 1/s (a1=1, a0=0) and position under tight velocity as 1/s
-        const auto           outer_d = design::pid_pole_placement(TransferFunction<1, 2>{.num = {1.0}, .den = {1.0, 0.0}}, {.omega = 4.0}).discretize(Ts_base * static_cast<double>(outer_div));
-        const auto           inner_d = design::pid_pole_placement(TransferFunction<1, 2>{.num = {1.0}, .den = {1.0, 0.0}}, {.omega = 30.0}).discretize(Ts_base);
+        const auto           outer_d = design::pid(TransferFunction<1, 2>{.num = {1.0}, .den = {1.0, 0.0}}, Ts_base * static_cast<double>(outer_div), design::PolePlacement{.omega = 4.0});
+        const auto           inner_d = design::pid(TransferFunction<1, 2>{.num = {1.0}, .den = {1.0, 0.0}}, Ts_base, design::PolePlacement{.omega = 30.0});
         PIController<double> outer_pi{outer_d};
         PIController<double> inner_pi{inner_d};
 

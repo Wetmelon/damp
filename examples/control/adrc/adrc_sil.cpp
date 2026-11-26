@@ -61,11 +61,11 @@ struct Axis {
 int main() {
     fmt::print("===== ADRC vs PI-D (rigid inertia SIL) =====\n\n");
     fmt::print("J_nom={:.3f} kg·m²  wc={:.0f} rad/s  wo={:.0f} rad/s  b0={:.1f}\n", J_nom, wc, wo, b0);
-    fmt::print("PI-D: Kp={:.3f}  Ki={:.3f}  Kd={:.3f}  (c=0, Tf=1/(10 wc))\n", pid_d.Kp, pid_d.Ki, pid_d.Kd);
+    fmt::print("PI-D: Kp={:.3f}  Ki={:.3f}  Kd={:.3f}  (c=0, Tf=1/(10 wc))\n", pid_d.gains.Kp, pid_d.gains.Ki, pid_d.gains.Kd);
     fmt::print("Scenario: step r=1 → load 0.45 N·m @ 1.2 s → J×3 @ 2.4 s → r=0 @ 3.6 s\n\n");
 
     Law<adrc_d, double>   adrc;
-    PIDController<double> pid{pid_d.discretize(Ts, pid_limits)};
+    PIDController<double> pid{pid_d};
 
     Axis plant_adrc{};
     Axis plant_pid{};

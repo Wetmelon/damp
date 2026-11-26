@@ -23,6 +23,7 @@
 #include "damp/controllers/state_feedback.hpp"
 #include "damp/controllers/stsmc.hpp"
 #include "damp/design/disturbance.hpp"
+#include "damp/design/pid_design.hpp"
 #include "damp/design/qp.hpp"
 #include "damp/design/steady_state_target.hpp"
 #include "damp/estimation/ekf.hpp"
@@ -199,13 +200,10 @@ TEST_CASE("fixed-rate PID equals its measured-period step ticked at the same Ts"
     constexpr double Ts = 1e-3;
 
     SUBCASE("PID (step(r, y) vs step(r, y, dt) at dt = Ts)") {
-        design::PIDGains<double> gains{};
-        gains.Kp = 2.0;
-        gains.Ki = 10.0;
-        gains.Kd = 0.05;
+        const auto gains = design::pid(design::Parallel{.Kp = 2.0, .Ki = 10.0, .Kd = 0.05}, Ts);
 
-        PIDController<double> disc{gains.discretize(Ts)};
-        PIDController<double> cont{gains.discretize(Ts)};
+        PIDController<double> disc{gains};
+        PIDController<double> cont{gains};
         for (int k = 0; k < 50; ++k) {
             const double r = 1.0;
             const double y = 0.1 * k * Ts;

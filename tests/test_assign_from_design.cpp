@@ -43,7 +43,7 @@ namespace {
 constexpr double kTs = 1e-3;
 
 // Double designs, deployed in float below with no .as<float>().
-constexpr auto kPid = design::pid(2.0, 5.0, 0.1).discretize(kTs);
+constexpr auto kPid = design::pid(design::Parallel{.Kp = 2.0, .Ki = 5.0, .Kd = 0.1}, kTs);
 constexpr auto kAdrc = design::adrc<2>(10.0, 50.0, 1.0, kTs);
 constexpr auto kEso = design::eso<2>(50.0, 1.0, kTs);
 constexpr auto kSmc = design::smc(10.0, 8.0, 1.0, kTs);
@@ -153,9 +153,9 @@ TEST_SUITE("assign from design") {
         CHECK(static_cast<bool>(kalman));
         CHECK_FALSE(static_cast<bool>(decltype(kalman){}));
 
-        constexpr auto pid = design::ziegler_nichols(10.0, 2.0);
+        constexpr auto pid = design::pid(design::FOPDT{.K = 1.0, .L = 0.5, .tau = 2.0}, kTs, design::SIMC{.tau_c = 0.5});
         static_assert(pid); // contextual conversion under constant evaluation
-        static_assert(!design::ziegler_nichols(10.0, 0.0));
+        static_assert(!design::pid(design::FOPDT{.K = 0.0, .L = 0.5, .tau = 2.0}, kTs, design::SIMC{.tau_c = 0.5}));
 
         const auto mpc = design::mpc<4, 2>(plant, design::MPCWeights<1, 1>{}, design::TrackedOutputs{});
         REQUIRE(mpc.success);

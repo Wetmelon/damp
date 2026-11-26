@@ -62,7 +62,7 @@
  * @see Åström & Hägglund, "Advanced PID Control" (2006), §7.5 (Smith predictor)
  * @see "Control of Dead-time Processes" (Normey-Rico & Camacho, 2007): internal stability of the
  *      Smith structure on unstable plants
- * @see design::simc for the delay-free PI/PID tuning used by the FOPDT designer
+ * @see design::SIMC for the delay-free PI tuning used by the FOPDT designer
  * @see SisoController, Cascade — same primary/composition shape
  */
 
@@ -217,15 +217,14 @@ template<typename T>
  * @brief Design a Smith predictor from FOPDT parameters
  *
  * Builds a ZOH-discretized first-order model of the delay-free dynamics and
- * tunes a continuous PI on that delay-free plant with SIMC (@p L treated as
- * zero for the primary controller), then discretizes it at @p Ts. SIMC on the
- * delay-free first-order plant is a PI (its derivative heuristic is zero at L = 0);
- * pack another primary with @ref smith_predictor_from_pid.
+ * designs the primary PI on that delay-free plant at @p Ts with SIMC,
+ * `design::pid(FOPDT{.K = K, .L = 0, .tau = tau}, Ts, SIMC{.tau_c = tau_c})` (@p L hidden
+ * from the primary controller); pack another primary with @ref smith_predictor_from_pid.
  *
  * @note Compare with the textbook Smith structure: primary controller designed
  *       for @f$G(s)@f$ only; the delay is restored by the parallel model path.
  *
- * @see simc — delay-free SIMC tuning (L = 0)
+ * @see design::SIMC — delay-free SIMC tuning (L = 0)
  * @see smith_predictor_from_pid
  * @see O.J.M. Smith (1957); Åström & Hägglund (2006), §7.5
  *
@@ -235,7 +234,7 @@ template<typename T>
  * @param Ts    Sample period [s] (finite, > 0)
  * @param tau_c Desired closed-loop time constant [s] for SIMC on the delay-free
  *              plant. If ≤ 0, defaults to @p tau.
- * @return SmithPredictorResult with discrete PI, model coeffs, and delay samples; refused with
+ * @return SmithPredictorResult with the PI design, model coeffs, and delay samples; refused with
  *         invalid_sample_time for a bad Ts and invalid_parameter for a bad plant or tau_c
  */
 template<typename T = double>
@@ -248,42 +247,41 @@ template<typename T = double>
     const T tau_c_eff = (tau_c > T{0}) ? tau_c : tau;
 
     // Primary controller on delay-free FO plant (Smith: hide L from C)
-    const PIDGains<T> cont = simc(K, T{0}, tau, tau_c_eff, PIDMode::PI);
-    if (!cont.success) {
-        return detail::refused<SmithPredictorResult<T>>(cont.status);
-    }
-    return detail::smith_result(cont.discretize(Ts), K, tau, L, Ts);
+    const auto primary = pid(FOPDT<T>{.K = K, .L = T{0}, .tau = tau}, Ts, SIMC<T>{.tau_c = tau_c_eff, .mode = PIDMode::PI});
+    return detail::smith_result(primary, K, tau, L, Ts);
 }
 
 /**
- * @brief Pack a Smith predictor from an existing continuous PID and FOPDT plant
+ * @brief Pack a Smith predictor from a PID design for the delay-free plant and the FOPDT plant
  *
- * Use when gains come from another designer (pole placement, manual tuning).
- * The continuous PID is discretized at @p Ts; the FO model and delay samples
- * are built from @p K, @p tau, @p L exactly as in @ref smith_predictor_from_fopdt.
+ * Use when the primary comes from another rule or from gains you have, a design::pid on the
+ * delay-free model at the Smith predictor's sample time:
+ * `smith_predictor_from_pid(design::pid(design::Parallel{.Kp = 2.0, .Ki = 0.4}, Ts), K, tau, L)`.
+ * The FO model and delay samples are built from @p K, @p tau, @p L at the design's Ts exactly as
+ * in @ref smith_predictor_from_fopdt.
  *
- * @param pid Continuous primary-controller design (for the delay-free plant)
+ * @param pid The primary-controller design (for the delay-free plant), at the loop's Ts
  * @param K   Static gain
  * @param tau Time constant [s]
  * @param L   Dead time [s]
- * @param Ts  Sample period [s]
- * @return SmithPredictorResult ready for @ref SmithPredictor with a PID primary; refused as
- *         @ref smith_predictor_from_fopdt refuses the plant, and with the status of a failed
- *         @p pid or of its discretization
+ * @return SmithPredictorResult ready for @ref SmithPredictor with a PID primary; refused with the
+ *         status of a failed @p pid, and as @ref smith_predictor_from_fopdt refuses the plant
  */
 template<typename T = double>
 [[nodiscard]] constexpr SmithPredictorResult<T> smith_predictor_from_pid(
-    const PIDGains<T>& pid,
-    T                  K,
-    T                  tau,
-    T                  L,
-    T                  Ts
+    const PIDResult<T>&      pid,
+    damp::type_identity_t<T> K,
+    damp::type_identity_t<T> tau,
+    damp::type_identity_t<T> L
 ) {
-    const DesignStatus plant = detail::smith_plant_status(K, tau, L, Ts);
+    if (!pid.success) {
+        return detail::refused<SmithPredictorResult<T>>(pid.status);
+    }
+    const DesignStatus plant = detail::smith_plant_status(K, tau, L, pid.Ts);
     if (plant != DesignStatus::ok) {
         return detail::refused<SmithPredictorResult<T>>(plant);
     }
-    return detail::smith_result(pid.discretize(Ts), K, tau, L, Ts);
+    return detail::smith_result(pid, K, tau, L, pid.Ts);
 }
 
 } // namespace design
@@ -368,7 +366,7 @@ public:
      * Convenience for PID-family @p Primary (same constructibility requirement as
      * the design-result constructor).
      *
-     * @param pid            The primary controller's design (PIDGains::discretize)
+     * @param pid            The primary controller's design (design::pid)
      * @param a              Discrete FO pole
      * @param b              Discrete FO gain
      * @param delay_samples  Integer pure delay (≤ MaxDelay)

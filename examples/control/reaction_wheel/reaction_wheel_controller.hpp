@@ -72,12 +72,9 @@ inline constexpr double w_angle = 5.0; // [rad/s] outer angle-loop bandwidth
 inline constexpr float  u_max = 12.0f;
 inline constexpr float  w_cmd_max = 8.0f;
 
-inline constexpr auto rate_pi_design = design::pid_pole_placement(TransferFunction{.num = {1.0}, .den = {1.0 / b_u, 0.0}}, {.omega = w_rate});
-inline constexpr auto angle_pi_design = design::pid_pole_placement(TransferFunction{.num = {1.0}, .den = {1.0, 0.0}}, {.omega = w_angle});
-
-/// The loops' output limits, which discretize gives each PI: the motor's ±u_max, the rate command's ±w_cmd_max.
-inline constexpr design::PIDLimits<double> rate_pi_limits{.input = {.lower = -static_cast<double>(u_max), .upper = static_cast<double>(u_max)}};
-inline constexpr design::PIDLimits<double> angle_pi_limits{.input = {.lower = -static_cast<double>(w_cmd_max), .upper = static_cast<double>(w_cmd_max)}};
+/// Each loop's PI placed on its integrator, with its output limit: the motor's ±u_max, the rate command's ±w_cmd_max.
+inline constexpr auto rate_pi_design = design::pid(TransferFunction{.num = {1.0}, .den = {1.0 / b_u, 0.0}}, Ts, design::PolePlacement{.omega = w_rate}, design::InputLimits{.lower = {-static_cast<double>(u_max)}, .upper = {static_cast<double>(u_max)}});
+inline constexpr auto angle_pi_design = design::pid(TransferFunction{.num = {1.0}, .den = {1.0, 0.0}}, Ts, design::PolePlacement{.omega = w_angle}, design::InputLimits{.lower = {-static_cast<double>(w_cmd_max)}, .upper = {static_cast<double>(w_cmd_max)}});
 
 // Light-model SISO on θ
 inline constexpr double wc_adrc = 8.0;

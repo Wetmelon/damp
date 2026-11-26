@@ -2,8 +2,8 @@
 
 Teaching notes for [`pid_controller.hpp`](pid_controller.hpp).
 
-This file is a firmware-shaped Design Is Deploy sketch: design a PI once,
-`discretize` + `.as<float>()`, then call `controller.step(r, y)` in `loop()`.
+This file is a firmware-shaped Design Is Deploy sketch: design a PI once at
+$`T_s`$, `.as<float>()`, then call `controller.step(r, y)` in `loop()`.
 There is no ODE plant inside the example — the process variable is whatever
 `read_process_variable()` returns (mock `0` on host; ADC on target).
 
@@ -17,16 +17,16 @@ For a host SIL of a linear plant against the same PI API, use
 | Symbol | Code | Value | Meaning |
 | ------ | ---- | ----- | ------- |
 | $`T_s`$ | `Ts` | $`0.01`$ s | Control period (100 Hz) |
-| $`K_p`$ | `design::pid` | $`4.0`$ | Proportional gain |
+| $`K_p`$ | `design::Parallel` | $`4.0`$ | Proportional gain |
 | $`K_i`$ | | $`8.0`$ | Integral gain |
 | $`K_d`$ | | $`0.0`$ | Derivative off → pure PI |
 | $`b`$ | default | $`1.0`$ | Setpoint weight on $`K_p`$ (library default) |
-| $`u_{\min},u_{\max}`$ | default | unbounded | Actuator limits (`.u` field, a `Bounds<1>`) |
+| $`u_{\min},u_{\max}`$ | default | unbounded | Actuator limits (an `InputLimits` option) |
 
-Call site — `design::pid(Kp, Ki, Kd)` is the unbounded teaching PI ($`b = c = 1`$, no filter). Setpoint weights, the derivative filter and the tracking time are named fields of the aggregate, e.g. `design::PIDGains{.Kp = 4.0, .Ki = 8.0, .b = 0.5}`; the limits go to `discretize`, `.discretize(Ts, {.input = {.lower = -12.0, .upper = 12.0}})`. At run time the law takes new ones: `auto g = pi.gains(); g.Kp = 5.0f; if (!pi.set_gains(g)) { … }`, and the same with `limits()` / `set_limits()`.
+Call site — `design::pid(design::Parallel{.Kp = 4.0, .Ki = 8.0}, Ts)` is the unbounded teaching PI ($`b = c = 1`$, no filter): gains you have, in place of a model and a tuning rule. Setpoint weights, the derivative filter, the anti-windup and the limits are options of the same call, e.g. `design::SetpointWeights{.b = 0.5}`, `design::InputLimits{.lower = {-12.0}, .upper = {12.0}}`. At run time the law takes new ones: `auto g = pi.gains(); g.Kp = 5.0f; if (!pi.set_gains(g)) { … }`, and the same with `limits()` / `set_limits()`.
 
 ```text
-design::pid(4.0, 8.0, 0.0).discretize(Ts).as<float>()
+design::pid(design::Parallel{.Kp = 4.0, .Ki = 8.0}, Ts).as<float>()
 → constinit PIController<float>
 ```
 
@@ -44,7 +44,7 @@ period (timer ISR or `delay` approximating $`T_s`$).
 ## Controller law (what the plant “sees”)
 
 Ideal continuous PI (teaching form; runtime is the library’s discrete
-`PIController` after Tustin-style discretization at $`T_s`$):
+`PIController` at $`T_s`$, its integral backward Euler):
 
 ```math
 U(s)
@@ -82,16 +82,16 @@ P(s) = \frac{K}{\tau s + 1}
 
 then the continuous open loop is $`C(s)P(s)`$ and you can tune $`K_p,K_i`$ against
 rise time / overshoot offline before flashing the same `PIController`. Prefer
-library maps when a known plant model exists (`design::pid_pole_placement`,
-etc.) — this sketch intentionally uses fixed `design::pid(...)` gains to show the
-deploy path with minimal includes.
+a rule when a model exists: `design::pid(design::FOPDT{.K = K, .L = 0.0, .tau = tau}, Ts, design::SIMC{.tau_c = ...})`,
+or `design::PolePlacement{.omega = ...}` on the transfer function — this sketch
+intentionally uses fixed gains to show the deploy path with minimal includes.
 
 ---
 
 ## Design → deploy steps
 
-1. Design in `double` on the host (`design::pid` / placement maps).
-2. `.discretize(Ts)` then `.as<float>()` into `static constinit PIController<float>`.
+1. Design in `double` at $`T_s`$ (`design::pid`, gains or a rule on a model).
+2. `.as<float>()` into `static constinit PIController<float>`.
 3. `setup()`: `controller.reset()`.
 4. `loop()` / ISR: $`y \leftarrow`$ sensor, $`u \leftarrow step(r,y)`$, write actuator.
 5. Do not pull `damp/control.hpp` on a small MCU for this demo — lean includes only.

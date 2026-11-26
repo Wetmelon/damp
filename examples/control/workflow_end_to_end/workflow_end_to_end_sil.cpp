@@ -45,7 +45,7 @@ int main() {
 
     // PID seed (side path): 20 rad/s crossover, phase margin from a 10% overshoot target.
     const double zeta_os = design::damping_ratio_from_overshoot_percent(10.0);
-    const auto   pid_seed = design::pidtune(sys_c, {.wc = 20.0, .phase_margin_deg = design::phase_margin_from_damping_ratio(zeta_os)});
+    const auto   pid_seed = design::pid(sys_c, kTs, design::LoopShape{.wc = 20.0, .phase_margin = design::phase_margin_from_damping_ratio(zeta_os)});
 
     const auto   Q = diag(20.0, 2.0);
     const double Q_integral = 80.0;
@@ -94,7 +94,7 @@ int main() {
 
     fmt::print("Workflow end-to-end summary\n");
     fmt::print("  Linearized A(1,0): {:.6f}\n", lin.A(1, 0));
-    fmt::print("  PID seed (pidtune, PID): success={}, Kp={:.6f}, Ki={:.6f}, Kd={:.6f}\n", pid_seed.success, pid_seed.Kp, pid_seed.Ki, pid_seed.Kd);
+    fmt::print("  PID seed (LoopShape, PID): success={}, Kp={:.6f}, Ki={:.6f}, Kd={:.6f}\n", pid_seed.success, pid_seed.gains.Kp, pid_seed.gains.Ki, pid_seed.gains.Kd);
     fmt::print("  LQGI synthesis success: true\n");
     fmt::print("  Bode points: {}, Nyquist points: {}\n", bode_open.points.size(), nyq_open.points.size());
     fmt::print("  Final output: {:.6f}\n", sim.y.back()(0, 0));

@@ -8,6 +8,7 @@
 #include "damp/concepts.hpp"
 #include "damp/controllers/composition.hpp"
 #include "damp/controllers/pid.hpp"
+#include "damp/design/pid_design.hpp"
 
 #define DOCTEST_CONFIG_INCLUDE_TYPE_TRAITS
 #include "doctest.h"
@@ -97,8 +98,8 @@ TEST_SUITE("Cascade and SwitchedController") {
     }
 
     TEST_CASE("Cascade holds the outer integral while the inner command is clamped") {
-        const auto                                                 outer_gains = design::PIDGains<double>{.Kp = 1.0, .Ki = 10.0}.discretize(0.01);
-        const auto                                                 inner_gains = design::PIDGains<double>{.Kp = 2.0}.discretize(0.01, {.input = {.lower = -1.0, .upper = 1.0}});
+        const auto                                                 outer_gains = design::pid(design::Parallel{.Kp = 1.0, .Ki = 10.0}, 0.01);
+        const auto                                                 inner_gains = design::pid(design::Parallel{.Kp = 2.0}, 0.01, design::InputLimits{.lower = {-1.0}, .upper = {1.0}});
         Cascade<PIController<double>, PController<double>, double> cas{PIController<double>{outer_gains}, PController<double>{inner_gains}};
         for (int k = 0; k < 100; ++k) {
             CHECK(cas.step(5.0, 0.0, 0.0) == 1.0); // the inner loop sits on its limit
@@ -106,7 +107,7 @@ TEST_SUITE("Cascade and SwitchedController") {
         CHECK(cas.outer().integral() == 0.0); // was 100·Ki·Ts·5 = 50: it ran on while the inner loop could not follow
 
         // The same through a clamp after the cascade, reported with back_calculate.
-        const auto                                                 open_inner = design::PIDGains<double>{.Kp = 2.0}.discretize(0.01);
+        const auto                                                 open_inner = design::pid(design::Parallel{.Kp = 2.0}, 0.01);
         Cascade<PIController<double>, PController<double>, double> told{PIController<double>{outer_gains}, PController<double>{open_inner}};
         for (int k = 0; k < 100; ++k) {
             told.back_calculate(damp::min(told.step(5.0, 0.0, 0.0), 1.0));
@@ -119,7 +120,7 @@ TEST_SUITE("Cascade and SwitchedController") {
     }
 
     TEST_CASE("SwitchedController starts a PID switched in from the command the plant last received") {
-        const auto gains = design::PIDGains<double>{.Kp = 1.0, .Ki = 10.0}.discretize(0.01);
+        const auto gains = design::pid(design::Parallel{.Kp = 1.0, .Ki = 10.0}, 0.01);
         using PI = PIController<double>;
         SwitchedController<PI, PI, PI, double> sw{PI{gains}, PI{gains}, PI{gains}};
         double                                 u = 0.0;
@@ -138,7 +139,7 @@ TEST_SUITE("Cascade and SwitchedController") {
     TEST_CASE("SwitchedController hands over exactly at r ≠ y with a setpoint weight b ≠ 1 (#87)") {
         //! The old track(u, y) preloaded the integral as if r = y: the first command of a PID switched
         //! in was u + Kp·(b·r − y) − Kp·(b − 1)·y, 2.4 off here. track(u, r, y) preloads at this r.
-        const auto gains = design::PIDGains<double>{.Kp = 2.0, .Ki = 10.0, .Kd = 0.05, .b = 0.4, .c = 0.0, .Tf = 0.01}.discretize(0.01, {.input = {.lower = -20.0, .upper = 20.0}});
+        const auto gains = design::pid(design::Parallel{.Kp = 2.0, .Ki = 10.0, .Kd = 0.05}, 0.01, design::SetpointWeights{.b = 0.4, .c = 0.0}, design::DerivativeFilter{.Tf = 0.01}, design::InputLimits{.lower = {-20.0}, .upper = {20.0}});
         using Law = PIDController<double>;
         SwitchedController<Law, Law, Law, double> sw{Law{gains}, Law{gains}, Law{gains}};
         double                                    u = 0.0;

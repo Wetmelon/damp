@@ -37,8 +37,8 @@ inline constexpr T   Ts = 1.0 / fsw; // [s]  control period
 inline constexpr int substeps = 100; // plant Euler sub-steps per control tick
 inline constexpr T   t_end = 6.0e-3; // [s]
 
-// omega_bw ~ fsw/13 keeps the continuous pole placement valid (see
-// damp::design::current_loop_pi's sampling note).
+// omega_bw ~ fsw/13 keeps the continuous design of the current loop, ω/(s + ω), close to the
+// sampled loop at fsw (FOController::tune: Kp = ω·L, Ki = ω·R).
 inline constexpr T bw = 2.0 * numbers::pi_v<T> * fsw / 13.0;
 
 // ---- Scenario --------------------------------------------------------------

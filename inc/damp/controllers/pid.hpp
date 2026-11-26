@@ -7,7 +7,8 @@
 
 /**
  * @file pid.hpp
- * @brief PID design and runtime controllers
+ * @brief The PID runtime, PIDController, and what it is built from: design::PIDGains,
+ *        design::PIDLimits and design::PIDResult (designed by design::pid, design/pid_design.hpp)
  */
 
 
@@ -169,8 +170,9 @@ namespace design {
  * @struct PIDLimits
  * @brief The limits of a PID law: on its command and on its integral term
  *
- * Unbounded by default. design::PIDGains::discretize takes the ones a law starts with, and the law
- * reads and changes them at run time with PIDController::limits and PIDController::set_limits.
+ * Unbounded by default. design::pid sets the ones a law starts with from its options (InputLimits,
+ * AntiWindup::limits), and the law reads and changes them at run time with PIDController::limits
+ * and PIDController::set_limits.
  *
  * @p integral clamps the integral term I, which enters u with unit gain, so it is in u's units.
  * That differs from StateFeedbackLimits::integral, which bounds the LQ integrators ξ ≈ ∫e dt in
@@ -188,23 +190,21 @@ struct PIDLimits {
     }
 };
 
-template<typename T>
-struct PIDResult;
-
 /**
  * @struct PIDGains
  * @brief 2-DOF continuous-time PID gains, setpoint weights, derivative filter and tracking time
  *
- * An aggregate: every field has a safe default (no back-calculation, b = c = 1, unfiltered
- * derivative), so name only the knobs you set — `design::PIDGains{.Kp = 4.0, .Ki = 8.0}`. The
- * limits are not gains: discretize takes them, `.discretize(0.01, {.input = {.lower = -12.0, .upper = 12.0}})`,
- * and the law changes them at run time with set_limits. An output limit is enough for
- * anti-windup: with tracking_time = 0 the integral holds against the clamp (conditional
- * integration), its own or one reported with back_calculate. A tracking_time T_t > 0 unwinds it
- * by back-calculation instead, a share min(T_s/T_t, 1) of the clamp's excess each tick.
- * @ref design::pid covers the plain (Kp, Ki, Kd) case. Deploy via discretize into a
- * @ref PIDResult for PIDController, which ticks at that period with step(r, y) or at a measured
- * one with step(r, y, dt), and takes new gains at run time with set_gains.
+ * The gains a design hands its runtime (PIDResult::gains), and the ones the runtime takes at run
+ * time (PIDController::gains, set_gains), with the analysis maps of the continuous law: to_tf,
+ * to_tf_ff, eval_fb, eval_ff, to_ss and to_ss_2dof. An aggregate: every field has a safe default
+ * (no back-calculation, b = c = 1, unfiltered derivative), so name only the knobs you set —
+ * `design::PIDGains{.Kp = 4.0, .Ki = 8.0}`. A design is design::pid's: a rule on a model, or the
+ * gains you have, `design::pid(design::Parallel{.Kp = 4.0, .Ki = 8.0}, Ts, opts...)`, whose
+ * options set the rest (DerivativeFilter, SetpointWeights, AntiWindup) and the limits
+ * (InputLimits), which are not gains. An output limit is enough for anti-windup: with
+ * tracking_time = 0 the integral holds against the clamp (conditional integration), its own or one
+ * reported with back_calculate. A tracking_time T_t > 0 unwinds it by back-calculation instead, a
+ * share min(T_s/T_t, 1) of the clamp's excess each tick.
  *
  * Special cases:
  * - b=1, c=1: Standard PID (P and D on error)
@@ -224,12 +224,6 @@ struct [[nodiscard]] PIDGains {
     T c = T{1};            ///< Derivative setpoint weight   (0=PI-D, 1=standard PID)
     T Tf = T{0};           ///< Derivative filter time constant (0 = unfiltered)
 
-    bool         success{true};            ///< status == DesignStatus::ok (a hand-built set is a valid design)
-    DesignStatus status{DesignStatus::ok}; ///< ok, or why the design failed
-
-    /** @brief True when the design succeeded (success). */
-    [[nodiscard]] constexpr explicit operator bool() const { return success; }
-
     /** @brief The same gains in another scalar. */
     template<typename U>
     [[nodiscard]] constexpr auto as() const {
@@ -241,30 +235,8 @@ struct [[nodiscard]] PIDGains {
             static_cast<U>(b),
             static_cast<U>(c),
             static_cast<U>(Tf),
-            success,
-            status,
         };
     }
-
-    /**
-     * @brief The deploy form: these gains at the sample period @p ts, with the limits the law starts with
-     *
-     * @code
-     * constinit PIController controller =
-     *     design::pid(4.0, 8.0, 0.0).discretize(0.01).as<float>();
-     * @endcode
-     *
-     * A failed design stays failed (its status is carried over), a @p ts that is not
-     * positive and finite is refused with DesignStatus::invalid_sample_time, and a
-     * non-finite gain, a Tf < 0, a tracking_time that is negative or not finite, or a limit
-     * that is not finite or whose lower end is above its upper one is refused with
-     * DesignStatus::invalid_parameter.
-     *
-     * @param ts     Sample period [s]
-     * @param limits The command's and the integral term's limits (unbounded by default)
-     * @return PIDResult for PIDController
-     */
-    [[nodiscard]] constexpr PIDResult<T> discretize(T ts, const PIDLimits<T>& limits = {}) const;
 
     /**
      * @brief Error-channel C(s) = Kp + Ki/s + Kd s/(1 + Tf s)
@@ -383,8 +355,9 @@ private:
  * @struct PIDResult
  * @brief A PID design deployed at a sample period: the continuous gains, the limits the law starts with, and T_s
  *
- * Produced by PIDGains::discretize. The runtime computes its per-tick coefficients from the
- * continuous gains and T_s (backward-Euler integral, filtered derivative):
+ * Produced by design::pid, and by matlab::c2d of continuous PIDGains. The runtime computes its
+ * per-tick coefficients from the continuous gains and T_s (backward-Euler integral, filtered
+ * derivative):
  * - @f$I \leftarrow I + K_i T_s\,e@f$, @f$u_I = I@f$ (same units as @f$u@f$), clamped into
  *   limits.integral
  * - @f$D \leftarrow a_d D + b_d\,\Delta(c r - y)@f$ with
@@ -392,7 +365,7 @@ private:
  *   (@f$T_f=0@f$ ⇒ raw @f$K_d/T_s@f$ difference)
  * - Back-calculation: @f$\Delta I = \min(T_s/T_t, 1)\,(u_{\mathrm{sat}}-u_{\mathrm{unsat}})@f$
  *
- * @see PIDGains::discretize
+ * @see design::pid
  * @see Åström & Hägglund, "Advanced PID Control" (2006), Sec. 3.3
  */
 template<typename T = double>
@@ -413,61 +386,6 @@ struct [[nodiscard]] PIDResult {
     }
 };
 
-namespace detail {
-using ::damp::detail::pid_gains_in_domain;
-} // namespace detail
-
-template<typename T>
-constexpr PIDResult<T> PIDGains<T>::discretize(T ts, const PIDLimits<T>& limits) const {
-    if (!success) {
-        return detail::refused<PIDResult<T>>(status);
-    }
-    if (!damp::finite_positive(ts)) {
-        return detail::refused<PIDResult<T>>(DesignStatus::invalid_sample_time);
-    }
-    if (!detail::pid_gains_in_domain(Kp, Ki, Kd, Tf, tracking_time, b, c)) {
-        return detail::refused<PIDResult<T>>(DesignStatus::invalid_parameter);
-    }
-    if (!limits.input.valid() || !limits.integral.valid()) {
-        return detail::refused<PIDResult<T>>(DesignStatus::invalid_parameter); // as the LQ and MPC designs
-    }
-    PIDResult<T> out{.gains = *this, .limits = limits, .Ts = ts};
-    detail::set_status(out, DesignStatus::ok);
-    return out;
-}
-
-/**
- * @brief Continuous PID gains Kₚ, Kᵢ, K_d with every other knob at its default
- *
- * Short form for the common case: no back-calculation, b = c = 1, unfiltered derivative. For
- * setpoint weights, a derivative filter or a tracking time, build @ref PIDGains directly with
- * designated initializers. Deploy with PIDGains::discretize(Ts, limits) for PIDController.
- *
- * The control law is:
- *
- *     u = Kp(b*r - y) + I + Kd*d/dt(c*r - y)
- *     dI/dt = Ki·(r - y)
- *
- * Preferred deploy construction:
- *
- * @code
- * constinit PIController controller =
- *     design::pid(4.0, 8.0, 0.0).discretize(0.01).as<float>();
- *
- * constinit PIController clamped =
- *     design::pid(4.0, 8.0, 0.0).discretize(0.01, {.input = {.lower = -12.0, .upper = 12.0}}).as<float>();
- * @endcode
- *
- * @param Kp Proportional gain
- * @param Ki Integral gain (continuous)
- * @param Kd Derivative gain
- *
- * @return PIDGains{Kp, Ki, Kd} with default weights, filter and tracking time
- */
-template<typename T = double>
-[[nodiscard]] constexpr PIDGains<T> pid(T Kp, T Ki, T Kd) {
-    return PIDGains<T>{.Kp = Kp, .Ki = Ki, .Kd = Kd};
-}
 
 } // namespace design
 
@@ -501,6 +419,10 @@ template<PIDMode Mode, typename T>
 }
 
 } // namespace detail
+
+namespace design::detail {
+using ::damp::detail::pid_gain_set;
+} // namespace design::detail
 
 /**
  * @ingroup discrete_controllers
@@ -560,7 +482,7 @@ template<PIDMode Mode, typename T>
  *
  * @code
  * constinit auto c = PIDController{
- *     design::pid(2.0, 5.0, 0.1).discretize(0.01).as<float>()};
+ *     design::pid(design::Parallel{.Kp = 2.0, .Ki = 5.0, .Kd = 0.1}, 0.01).as<float>()};
  * float u = c.step(r, y);
  * @endcode
  *
@@ -574,15 +496,11 @@ template<PIDMode Mode, typename T>
  * Keep b = 1 on an angle axis: with b ≠ 1, P carries −Kₚ(1 − b)·y, which depends on the
  * absolute angle and the turn count rather than on the error.
  *
- * MATLAB® equivalent: design with `pid(...)` then `c2d`; runtime is the discrete law.
+ * MATLAB® equivalent: design with `pid(...)` then `c2d` (matlab::pid, matlab::c2d); runtime is the
+ * discrete law.
  * A profiled PID takes its setpoint from a motion profile each tick (the motion pack's
  * trapezoidal profile, not yet public).
  * @see Åström & Hägglund, "Advanced PID Control" (2006), Sec. 3.3–4.4, §3.5 (anti-windup, bumpless transfer)
- *
- * @note Gains from a continuous-time designer (ziegler_nichols, cohen_coon,
- *       simc, lambda_tuning, pidtune) are Ts-agnostic until discretize(Ts).
- *       Gains from the sampled design::pid_pole_placement(plant, poles, Ts) already
- *       embed that Ts in continuous form — discretize with the same Ts.
  *
  * @tparam T     Scalar
  * @tparam Mode  The terms the tick computes
@@ -611,7 +529,7 @@ public:
 
     /**
      * @brief From a design result. Non-explicit for assign-from-design:
-     * `PIController c = design::pid(...).discretize(Ts).as<float>();`
+     * `PIController c = design::pid(model, Ts, rule).as<float>();`
      */
     constexpr PIDController(const design::PIDResult<T>& r) // NOLINT(google-explicit-constructor): assign-from-design
         : u_lim_(r.limits.input), i_(integral_within(r.limits.integral)) {
@@ -781,7 +699,7 @@ public:
      *
      * Recomputes the fixed-rate coefficients at sample_time() and keeps the integral I: it is the
      * I term, in u's units, so a new Kᵢ changes its rate and not its value, and the command does
-     * not jump. Refused (false, nothing changed) for a failed @p g, a non-finite gain, a Tf or a
+     * not jump. Refused (false, nothing changed) for a non-finite gain, a Tf or a
      * tracking_time below 0 or not finite, a gain the mode does not compute (K_d ≠ 0 on a PI,
      * Kᵢ ≠ 0 on a P or a PD), or a coefficient that overflows at sample_time().
      *
@@ -794,7 +712,7 @@ public:
     [[nodiscard]] constexpr bool set_gains(const design::PIDGains<T>& g)
         requires kHeld
     {
-        return g.success && take(g, k_.Ts);
+        return take(g, k_.Ts);
     }
 
     /** @brief The limits in force: the design's, or the last set_limits (integral unbounded on a P or a PD). */
@@ -924,7 +842,7 @@ private:
     }
 
     /** @brief The derivative term over one period: D ← a·D + b·Δ(c·r − y), Δ zero on the first tick (no derivative kick). */
-    constexpr void differentiate(T r, T y, const Derivative& k)
+    constexpr void differentiate(T r, T y, Derivative k)
         requires kD
     {
         const T x = (k_.d.c * r) - y;
@@ -937,7 +855,7 @@ private:
     }
 
     /** @brief One tick over a period @p h: integral increment @p ki_h per unit error, derivative coefficients @p k. */
-    [[nodiscard]] constexpr T tick(T r, T y, T ki_h, const Derivative& k, T h) {
+    [[nodiscard]] constexpr T tick(T r, T y, T ki_h, Derivative k, T h) {
         T u_unsat = k_.Kp * ((k_.b * r) - y);
         if constexpr (kD) {
             differentiate(r, y, k);
@@ -961,7 +879,7 @@ private:
     }
 
     /** @brief track's memory: the tick's derivative, then I for a next tick at (r, y) of the same period that returns u clamped. */
-    constexpr void follow(T u, T r, T y, T ki_h, const Derivative& k, T h) {
+    constexpr void follow(T u, T r, T y, T ki_h, Derivative k, T h) {
         T next = k_.Kp * ((k_.b * r) - y); // the next tick's P + D at this (r, y)
         if constexpr (kD) {
             differentiate(r, y, k);
@@ -1026,11 +944,11 @@ namespace detail {
 template<typename R>
 inline constexpr bool is_pid_result = false;
 
-/** @brief design::PIDGains::discretize's result. */
+/** @brief design::pid's result. */
 template<typename U>
 inline constexpr bool is_pid_result<design::PIDResult<U>> = true;
 
-/** @brief A PID design (design::PIDGains::discretize). */
+/** @brief A PID design (design::pid). */
 template<const auto& Res>
 concept pid_design = is_pid_result<design_t<Res>>;
 

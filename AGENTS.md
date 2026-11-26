@@ -148,14 +148,19 @@ the repo root.
   runtime, `MPC`, on the measured state or through a filter with a `KalmanNoise` (or `ObserverPoles`), and `OFMPC` names the
   offset-free one, with a noise and a disturbance spec (an alias: `OFMPC law{res}` refuses a design without a
   disturbance); a `MeasuredDisturbance` adds to any of them, the target under d and a filter's known
-  input after u. An option carries its own numbers, so the
+  input after u. `pid(model, Ts, rule, opts...)` is the PID's one call, its runtime `PIDController`: the
+  model an `FOPDT`, a relay test's `Ultimate` or a continuous `StateSpace` / `TransferFunction`, the rule
+  in the weights' slot (`SIMC`, `AMIGO`, `LoopShape`, `PolePlacement` or `Poles`, refused at compile time
+  on a model it cannot use), or gains you have, `Parallel` / `Standard`, in place of both; its options
+  `InputLimits` (one input), `DerivativeFilter{.Tf}`, `SetpointWeights{.b, .c}` and
+  `AntiWindup{.tracking_time, .limits}`, the integral term's clamp in u's units. An option carries its own numbers, so the
   weights are the same with or without it: `IntegralAction{.Q, .outputs, .limits,
   .tracking_time}` the integrators' cost and limits, `KalmanNoise` the noise and
   the disturbance's walk, `InputDelay<N>{θ}` and `OutputDelay<M>{θ}` the delays. A weight an option's
   size comes from is a value (a scalar or a Matrix); `KalmanNoise` deduces its
   sizes from its fields. A limit option's ends are flat, `.lower` and `.upper`, each unbounded when left out, as a
   `Bounds`' are (vectors written flat, `{-0.5}` for one channel; a `DemandLimit`'s scalars); a box inside an option
-  that is not a limit is `.limits` (`IntegralAction`). A list of indices is a C array (`DemandLimit::outer`,
+  that is not a limit is `.limits` (`IntegralAction`, `AntiWindup`). A list of indices is a C array (`DemandLimit::outer`,
   `TrackedOutputs::outputs`, `OutputLimits::outputs`, `StateLimits::states`, the disturbance specs' `outputs`), so its length
   is deduced from bare braces, which no class member's is, and so are `InputLimits`' and `InputRateLimits`' ends,
   one entry per input (an end left out starts at the other end's unbounded value, `detail::end_left_out`); the type with none
@@ -187,8 +192,8 @@ the repo root.
   changed): `StateFeedbackLimits` and `MPCLimits`, which start with `input` (then
   `input_rate`) and end with `disturbance`, and a design result holds the same
   struct as `limits`. The PID laws do the same with `design::PIDLimits` (`input`,
-  `integral`, the latter on the I term in u's units), which `discretize(Ts, limits)`
-  gives them, and take new gains with `gains()` / `set_gains(g)`. The other
+  `integral`, the latter on the I term in u's units), which `design::pid`'s
+  `InputLimits` and `AntiWindup` give them, and take new gains with `gains()` / `set_gains(g)`. The other
   runtimes hold `u_lim` as a public member. The
   tick returns a command inside its limits, and with nothing else set the law's
   memory holds against that clamp (conditional integration, an observer or

@@ -133,7 +133,7 @@ A = -\frac{R}{L},\qquad B = \frac{1}{L},\qquad C = 1,\qquad D = 0
 ```
 
 Transfer function $`G(s) = C(sI-A)^{-1}B + D = 1/(L s + R)`$. That is the plant
-passed to `current_loop_pi` / `FOController::tune`.
+`FOController::tune` sets each axis's PI on.
 
 ---
 
@@ -194,22 +194,25 @@ so they do not wind up against the rail.
 
 ## Gain placement
 
-`FOController::tune` places each axis on $`G(s) = 1/(L s + R)`$ with bandwidth
-$`\omega_{\mathrm{bw}}`$ and $`\zeta = 1`$:
+`FOController::tune` sets each axis on $`G(s) = 1/(L s + R)`$ to the bandwidth
+$`\omega_{\mathrm{bw}}`$ (the internal-model current controller, ODrive's formula):
 
 ```math
-K_p = 2\zeta\omega_{\mathrm{bw}} L - R,\qquad
-K_i = L\,\omega_{\mathrm{bw}}^2,\qquad
-K_{bc} = K_p
+K_p = \omega_{\mathrm{bw}} L,\qquad
+K_i = \omega_{\mathrm{bw}} R
 ```
 
-Same poles for PI and I-P; only $`b`$ differs.
-$`\omega_{\mathrm{bw}} \approx 2\pi f_{\mathrm{sw}}/13`$ keeps the continuous design
-valid at the sample rate.
+The PI zero at $`-K_i/K_p = -R/L`$ cancels the plant pole, so the loop is
+$`\omega_{\mathrm{bw}}/s`$ and the PI's reference response is
+$`\omega_{\mathrm{bw}}/(s + \omega_{\mathrm{bw}})`$: first order, no overshoot in the
+continuous loop. The I-P's is $`\omega_{\mathrm{bw}}(R/L)/((s + R/L)(s + \omega_{\mathrm{bw}}))`$,
+slowed by the plant pole it no longer cancels. The integrator holds against the voltage
+circle (conditional integration; no tracking time). $`\omega_{\mathrm{bw}} \approx 2\pi
+f_{\mathrm{sw}}/13`$ keeps the continuous design close to the sampled loop.
 
-Identical poles ⇒ identical linear disturbance rejection. The step response
-differs: PI applies a full $`K_p \Delta r`$ kick; I-P ramps only through the
-integral.
+Same loop for PI and I-P; only $`b`$ differs: identical linear disturbance rejection. The
+step response differs: PI applies a full $`K_p \Delta r`$ kick; I-P ramps only through
+the integral.
 
 ---
 
